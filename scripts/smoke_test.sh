@@ -13,7 +13,7 @@ PKG=com.dotaidle.ancientwar
 SAVE=/data/data/$PKG/files/save.json
 mkdir -p "$OUT"
 
-fail() { echo "SMOKE FAIL: $*"; adb logcat -d | grep -E "AndroidRuntime|$PKG" | tail -80 || true; exit 1; }
+fail() { echo "SMOKE FAIL: $*"; ui_dump fail; echo "--- on-screen texts:"; grep -o 'text="[^"]\+"' "$OUT/fail.xml" | head -40 || true; adb logcat -d | grep -E "AndroidRuntime|$PKG" | tail -80 || true; exit 1; }
 shot() { adb exec-out screencap -p > "$OUT/$1.png" || true; }
 ui_dump() { adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true; adb pull /sdcard/ui.xml "$OUT/$1.xml" >/dev/null 2>&1 || true; }
 read_save() { adb shell run-as $PKG cat $SAVE; }

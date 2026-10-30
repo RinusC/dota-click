@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,28 +69,33 @@ fun GameApp(vm: GameViewModel) {
     LaunchedEffect(Unit) {
         while (true) withFrameNanos { frame.longValue = it }
     }
+    vm.version
+    // Strings come from a plain (non-Compose) table, so rebuild the tree when the language changes;
+    // otherwise memoized lambdas (dialog titles etc.) would keep the old language.
     CompositionLocalProvider(LocalFrameClock provides frame) {
-        Box(Modifier.fillMaxSize().background(GameColors.Bg)) {
-            Column(Modifier.fillMaxSize()) {
-                TopBar(vm)
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    when (vm.tab) {
-                        Tab.LANES -> LanesScreen(vm)
-                        Tab.HEROES -> HeroesScreen(vm)
-                        Tab.SHOP -> ShopScreen(vm)
-                        Tab.BATTLE -> BattleScreen(vm)
-                        Tab.REBIRTH -> RebirthScreen(vm)
-                        Tab.TALENTS -> TalentsScreen(vm)
+        key(vm.state.settings.language) {
+            Box(Modifier.fillMaxSize().background(GameColors.Bg)) {
+                Column(Modifier.fillMaxSize()) {
+                    TopBar(vm)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        when (vm.tab) {
+                            Tab.LANES -> LanesScreen(vm)
+                            Tab.HEROES -> HeroesScreen(vm)
+                            Tab.SHOP -> ShopScreen(vm)
+                            Tab.BATTLE -> BattleScreen(vm)
+                            Tab.REBIRTH -> RebirthScreen(vm)
+                            Tab.TALENTS -> TalentsScreen(vm)
+                        }
                     }
+                    BottomNav(vm)
                 }
-                BottomNav(vm)
+                TooltipOverlay(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
+                ToastOverlay(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
+                BannerOverlay(vm, Modifier.align(Alignment.Center))
+                OfflineDialog(vm)
+                if (vm.showSettings) SettingsDialog(vm)
+                AdOverlay(vm)
             }
-            TooltipOverlay(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
-            ToastOverlay(vm, Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
-            BannerOverlay(vm, Modifier.align(Alignment.Center))
-            OfflineDialog(vm)
-            if (vm.showSettings) SettingsDialog(vm)
-            AdOverlay(vm)
         }
     }
 }
