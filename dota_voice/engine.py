@@ -15,6 +15,7 @@ from .matcher import Matcher, normalize
 from .recognizer import Hypothesis, VoiceListener
 
 PAUSE, RESUME = "pause", "resume"
+STABLE_SECONDS = 0.15  # сколько промежуточная гипотеза должна не меняться, чтобы ей поверить
 
 
 @dataclass
@@ -49,9 +50,9 @@ class VoiceEngine:
     «один два», сработают обе команды в том порядке, в каком сказаны,
     а распознавание при этом не ждёт, пока клавиша будет нажата и отпущена.
 
-    Быстрая реакция: команда срабатывает по промежуточному результату, как только
-    после неё reaction_delay_ms тишины или уже звучит следующее слово, — не дожидаясь,
-    пока распознаватель сам решит, что фраза закончена (это ещё ~0,5–0,8 с).
+    Быстрая реакция: фраза считается законченной после reaction_delay_ms тишины
+    (Vosk сам ждёт ~0,8 с), а если сразу за командой звучит следующая, первая
+    выполняется, не дожидаясь паузы, — как только её распознавание устоялось.
     """
 
     def __init__(self, settings: Settings, profile: Profile, model_dir: Path,
@@ -116,7 +117,8 @@ class VoiceEngine:
             if self.settings.fast_reaction:
                 mode += ", быстрая реакция"
             self.on_event(Event("ready", mode, unknown=listener.unknown))
-            for hypothesis in listener.listen(self._stop):
+            endpoint = self.settings.reaction_delay_ms / 1000 if self.settings.fast_reaction else None
+            for hypothesis in listener.listen(self._stop, endpoint):
                 self.handle(hypothesis)
         except Exception as e:  # noqa: BLE001 — любую ошибку показываем пользователю
             self.on_event(Event("error", str(e) or type(e).__name__))
@@ -133,16 +135,16 @@ class VoiceEngine:
             self.on_event(Event("partial", normalize(h.text)))
         if not self.settings.fast_reaction:
             return
-        # Выполняем по порядку все команды, которые уже точно сказаны целиком:
-        # после них тишина или следующее слово (и гипотеза держится не меньше delay).
-        delay = self.settings.reaction_delay_ms / 1000
+        # Команды, за которыми уже звучит следующее слово, выполняем сразу, когда
+        # гипотеза продержалась STABLE_SECONDS. Последнюю команду фразы — только по
+        # законченному результату: сразу после конца слова промежуточный текст бывает неточным.
         n_tokens, hits = self._matcher.parse_tokens(h.text)
         while self._fired < len(hits):
             phrase, target, end = hits[self._fired]
             if (self._fired, phrase) != self._candidate:
                 self._candidate, self._candidate_since = (self._fired, phrase), h.time
-            followed = end < n_tokens and h.time - self._candidate_since >= delay
-            if not (followed or h.quiet >= delay) or self._matcher.is_open(phrase):
+            if (end == n_tokens or h.time - self._candidate_since < STABLE_SECONDS
+                    or self._matcher.is_open(phrase)):
                 return
             self._fired += 1
             self._dispatch(phrase, target)

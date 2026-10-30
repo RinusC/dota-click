@@ -43,16 +43,17 @@ class SilenceMeter:
     """Отличает речь от тишины по громкости, подстраиваясь под фоновый шум микрофона."""
 
     def __init__(self) -> None:
-        self.floor: float | None = None
+        self.floor = float(QUIET_LEVEL)  # уровень фонового шума
         self.quiet = 0.0
 
     def feed(self, data: bytes, seconds: float) -> float:
         samples = array("h", data)
         level = math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0.0
-        if self.floor is None or level < self.floor:
-            self.floor = level if self.floor is None else (self.floor + level) / 2
+        # Вниз шум подстраивается быстро, вверх — за несколько секунд, чтобы речь не считалась шумом.
+        if level < self.floor:
+            self.floor = (self.floor + level) / 2
         else:
-            self.floor = self.floor * 0.995 + level * 0.005
+            self.floor = self.floor * 0.99 + level * 0.01
         self.quiet = self.quiet + seconds if level < max(self.floor * 2.5, QUIET_LEVEL) else 0.0
         return self.quiet
 
@@ -187,7 +188,10 @@ class VoiceListener:
             return self._vosk.KaldiRecognizer(self.model, self.sample_rate, grammar)
         return self._vosk.KaldiRecognizer(self.model, self.sample_rate)
 
-    def listen(self, stop: threading.Event | None = None) -> Iterator[Hypothesis]:
+    def listen(self, stop: threading.Event | None = None,
+               endpoint: float | None = None) -> Iterator[Hypothesis]:
+        """endpoint — через сколько секунд тишины после речи самим завершать фразу,
+        не дожидаясь, пока это решит Vosk (у него это ~0,8 с). None — ждать Vosk."""
         stop = stop or threading.Event()
         audio: queue.Queue[bytes] = queue.Queue()
 
@@ -198,6 +202,7 @@ class VoiceListener:
         meter = SilenceMeter()
         samples = 0
         last_partial = ""
+        armed = False  # была речь после прошлого принудительного завершения фразы
         with self._sd.RawInputStream(samplerate=self.sample_rate,
                                      blocksize=int(self.sample_rate * CHUNK_SECONDS),
                                      device=self.device, dtype="int16", channels=1,
@@ -211,9 +216,15 @@ class VoiceListener:
                 samples += count
                 now = samples / self.sample_rate
                 quiet = meter.feed(data, count / self.sample_rate)
+                armed = armed or quiet == 0
                 if rec.AcceptWaveform(data):
                     last_partial = ""
                     yield Hypothesis(True, json.loads(rec.Result()).get("text", ""), now, quiet)
+                elif endpoint is not None and armed and last_partial and quiet >= endpoint:
+                    # Полное (не промежуточное) распознавание уже сказанного: промежуточный
+                    # текст сразу после конца слова бывает ещё неточным.
+                    last_partial, armed = "", False
+                    yield Hypothesis(True, json.loads(rec.FinalResult()).get("text", ""), now, quiet)
                 else:
                     # Обычный (не пословный) промежуточный результат: Vosk обновляет его
                     # на каждой порции звука, а пословный — с запаздыванием.
