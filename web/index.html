@@ -1,0 +1,746 @@
+<title>Dota Idle: Ancient War</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&family=Rubik:wght@400;500;700&display=swap">
+<style>
+/* Layout: one phone-shaped column — gold bar on top, scrolling screen, six-tab nav at the bottom. */
+:root {
+  --bg: #0e0f13; --surface: #181a20; --surface-hi: #22252d; --border: #3a2a24;
+  --red: #b8321f; --red-hi: #ff5a3d; --gold: #e8b64c; --gold-dim: #8c6b2a;
+  --text: #e6e2d8; --muted: #8a8f98; --green: #5dbb63; --blue: #4a90e2; --disabled: #2c2e35;
+  --r-common: #b0b0b0; --r-rare: #4a90e2; --r-epic: #a35be0; --r-legendary: #f0a030;
+  --f-display: "Russo One", "Arial Black", system-ui, sans-serif;
+  --f-body: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--f-body); font-size: 14px; overflow: hidden; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+#app { height: 100%; max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+button { font: inherit; color: inherit; }
+.top { background: var(--surface); padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--border); }
+.top-row { display: flex; align-items: center; gap: 10px; }
+.gold-big { font-family: var(--f-display); font-size: 26px; color: var(--gold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rates { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.rates .g { color: var(--gold); opacity: .85 } .rates .d { color: var(--red-hi) }
+.gear { background: none; border: 0; font-size: 24px; padding: 6px 8px; cursor: pointer; border-radius: 50%; }
+.gear:focus-visible, .btn:focus-visible, .tab:focus-visible, .card:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.chip { font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 6px; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 16%, transparent); white-space: nowrap; }
+.screen { flex: 1; overflow-y: auto; overflow-x: hidden; padding-block: 12px 16px; padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch; }
+.nav { display: flex; background: var(--surface); border-top: 1px solid var(--border); padding: 4px max(4px, env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) max(4px, env(safe-area-inset-left, 0px)); }
+.tab { flex: 1; min-width: 0; background: none; border: 0; border-radius: 8px; padding: 6px 0 5px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; position: relative; }
+.tab .ic { font-size: 19px; line-height: 1 } .tab .lb { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; max-width: 100%; text-overflow: ellipsis; }
+.tab.on { background: color-mix(in srgb, var(--red) 35%, transparent); } .tab.on .lb { color: var(--gold); font-weight: 700 }
+.tab .dot { position: absolute; top: 4px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.card.acc-gold { border-color: var(--gold-dim) } .card.acc-gold2 { border-color: var(--gold) } .card.acc-blue { border-color: var(--blue) } .card.acc-red { border-color: var(--red-hi) } .card.acc-green { border-color: var(--green) }
+.row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.grow { flex: 1; min-width: 0; }
+.h { font-weight: 700; font-size: 17px; color: var(--gold); text-wrap: balance; }
+.name { font-weight: 700; font-size: 17px; }
+.muted { color: var(--muted); font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+.btn { min-height: 52px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); background: var(--red); font-weight: 700; font-size: 15px; padding: 8px 12px; cursor: pointer; text-align: center; touch-action: manipulation; user-select: none; -webkit-user-select: none; transition: transform .06s, filter .12s; }
+.btn:active:not(:disabled) { transform: scale(.97); filter: brightness(1.15); }
+.btn:disabled { background: var(--disabled); color: var(--muted); border-color: var(--border); cursor: default; }
+.btn.goldish { background: var(--gold-dim) } .btn.dark { background: var(--surface-hi) } .btn.blue { background: color-mix(in srgb, var(--blue) 70%, var(--bg)); } .btn.sm { min-height: 44px; font-size: 13px }
+.btn.big { min-height: 64px; font-size: 20px; font-family: var(--f-display); letter-spacing: .04em; }
+.btns { display: flex; gap: 8px; } .btns > * { flex: 1; min-width: 0; }
+.bar { height: 10px; border-radius: 6px; background: var(--disabled); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; border-radius: 6px; background: var(--gold); }
+.bar.red > i { background: var(--red-hi) } .bar.lane > i { background: var(--red) } .bar.thin { height: 4px } .bar.blue > i { background: var(--blue) } .bar.tall { height: 16px }
+canvas.lane { width: 100%; height: 64px; display: block; }
+.items { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.slot { min-height: 44px; border-radius: 6px; background: var(--surface-hi); border: 1px solid var(--border); display: grid; place-items: center; font-weight: 700; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.r-COMMON { color: var(--r-common); border-color: var(--r-common) } .r-RARE { color: var(--r-rare); border-color: var(--r-rare) } .r-EPIC { color: var(--r-epic); border-color: var(--r-epic) } .r-LEGENDARY { color: var(--r-legendary); border-color: var(--r-legendary) }
+.card.r-COMMON, .card.r-RARE, .card.r-EPIC, .card.r-LEGENDARY { color: var(--text) }
+.enemy-ic { font-size: 56px; line-height: 1; }
+.talents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.talents .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tnode { min-height: 96px; padding: 10px; cursor: pointer; font-size: 12px; }
+.tnode b { font-size: 12px; } .tnode.locked b { color: var(--muted) }
+.log { font-size: 13px; line-height: 1.45; }
+.overlay { position: absolute; inset: 0; background: rgba(8,9,12,.72); display: grid; place-items: center; z-index: 30; padding: 16px; }
+.dialog { background: var(--surface); border: 1px solid var(--gold-dim); border-radius: 14px; padding: 18px; width: 100%; max-width: 400px; max-height: calc(100% - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.dialog h2 { margin: 0; color: var(--gold); font-family: var(--f-display); font-weight: 400; font-size: 20px; }
+.dialog p { margin: 0; white-space: pre-line; line-height: 1.5; }
+.ad { position: absolute; inset: 0; background: rgba(14,15,19,.97); z-index: 40; display: grid; place-items: center; text-align: center; }
+.ad .tv { font-size: 64px } .ad h3 { color: var(--gold); font-size: 22px; margin: 12px 0 6px; }
+.tooltip { position: absolute; left: 16px; right: 16px; bottom: 76px; background: var(--surface-hi); border: 1px solid var(--gold); border-radius: 10px; padding: 14px; z-index: 35; font-size: 14px; line-height: 1.45; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.toast { position: absolute; left: 50%; transform: translateX(-50%); bottom: 80px; background: var(--gold); color: var(--bg); font-weight: 700; padding: 10px 16px; border-radius: 20px; z-index: 36; max-width: calc(100% - 48px); text-align: center; }
+.banner { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); background: rgba(14,15,19,.88); border: 2px solid var(--gold); color: var(--gold); font-family: var(--f-display); font-size: 28px; padding: 16px 24px; border-radius: 12px; z-index: 34; text-align: center; pointer-events: none; animation: pop .35s ease-out; max-width: calc(100% - 32px); }
+@keyframes pop { from { transform: translate(-50%, -50%) scale(.6); opacity: 0 } }
+.floater { position: fixed; z-index: 33; pointer-events: none; font-weight: 800; font-size: 18px; text-shadow: 0 2px 4px rgba(0,0,0,.7); animation: rise 1.2s ease-out forwards; white-space: nowrap; }
+@keyframes rise { from { transform: translate(-50%, 0); opacity: 1 } to { transform: translate(-50%, -70px); opacity: 0 } }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.switch input { width: 44px; height: 24px; accent-color: var(--red); }
+.testbox { border: 1px dashed var(--gold-dim); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.testbox .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .floater, .banner { animation: none } .btn { transition: none } }
+</style>
+
+<div id="app">
+  <div class="top" id="top"></div>
+  <div class="screen" id="screen"></div>
+  <nav class="nav" id="nav"></nav>
+  <div id="layers"></div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================================================
+ * Dota Idle: Ancient War — web build. A straight port of the Kotlin `core` module
+ * (same formulas, content and rules) with a DOM UI. 10 ticks/s logic, 60 FPS bars.
+ * ========================================================================================== */
+
+// ---------------------------------------------------------------- i18n
+let LANG = "en";
+const S = {
+  tab_lanes: ["Lanes", "Линии"], tab_heroes: ["Heroes", "Герои"], tab_shop: ["Shop", "Лавка"], tab_battle: ["Battle", "Битва"], tab_rebirth: ["Rebirth", "Перерождение"], tab_talents: ["Talents", "Таланты"],
+  per_sec: ["%s/s", "%s/с"], dps: ["DPS", "Урон/с"], team_dps: ["Team DPS: %s", "Урон команды: %s"], ok: ["OK", "OK"], cancel: ["Cancel", "Отмена"], close: ["Close", "Закрыть"], level_short: ["Lv %d", "Ур. %d"],
+  buff_x2: ["x2 gold %s", "x2 золото %s"], buff_aegis: ["Aegis %s", "Аегис %s"], buff_rage: ["Rage %s", "Ярость %s"], buff_haste: ["Haste %s", "Ускорение %s"],
+  lane_top: ["Top Lane", "Верхняя линия"], lane_mid: ["Mid Lane", "Центральная линия"], lane_bot: ["Bot Lane", "Нижняя линия"],
+  lane_info: ["Level %d · Wave %d · %s per creep", "Уровень %d · Волна %d · %s за крипа"], lane_killed: ["Creeps killed: %s", "Убито крипов: %s"], lane_next_wave: ["Next wave in %s", "След. волна через %s"],
+  upgrade_wave: ["Upgrade Wave · %s", "Улучшить волну · %s"], lanes_total: ["Farm: %s/s · wave every %ss", "Фарм: %s/с · волна каждые %sс"],
+  tip_upgrade_wave: ["Raises lane level: gold per creep = 10 × 1.03^wave × level × hero DPS multiplier. Cost = 100 × 1.15^level.", "Повышает уровень линии: золото за крипа = 10 × 1.03^волна × уровень × множитель урона героев. Цена = 100 × 1.15^уровень."],
+  ad_x2: ["📺 x2 gold · 5 min", "📺 x2 золото · 5 мин"], ad_farm: ["📺 Farm 4h in 5 sec", "📺 Фарм 4ч за 5 сек"], ad_farm_cd: ["📺 Farm 4h · %s", "📺 Фарм 4ч · %s"],
+  tip_ad_x2: ["Watch a short ad: all gold x2 for 5 minutes (stacks up to 60 min).", "Посмотри рекламу: всё золото x2 на 5 минут (копится до 60 мин)."],
+  tip_ad_farm: ["Watch a short ad: instantly receive 4 hours of idle farm (gold + battle). Once per hour.", "Посмотри рекламу: мгновенно получи 4 часа оффлайн-фарма (золото + бой). Раз в час."],
+  ad_placeholder: ["Advertisement (placeholder)", "Реклама (заглушка)"], ad_closing_in: ["Reward in %d s…", "Награда через %d с…"], ad_interstitial_in: ["Closes in %d s…", "Закроется через %d с…"], ad_remove_hint: ["Remove ads in Settings", "Отключить рекламу — в настройках"],
+  farm_reward: ["Farmed 4h: +%s gold, %d enemies", "Нафармлено за 4ч: +%s золота, %d врагов"],
+  hire_hero: ["Hire New Hero · %s", "Нанять героя · %s"], level_up: ["Level Up · %s", "Уровень · %s"], equip_item: ["Equip Item", "Надеть предмет"], empty_slot: ["Empty %s slot", "Пустой слот: %s"],
+  hero_dps: ["DPS %s · items x%s", "Урон %s · предметы x%s"], ability_ready: ["⚡ %s", "⚡ %s"], ability_cd: ["⏳ %s %s", "⏳ %s %s"],
+  auto_cast_on: ["Auto-cast ON", "Авто-каст ВКЛ"], auto_cast_off: ["Tap abilities to cast (Auto-cast talent automates it)", "Жми на способности (талант «Авто-каст» сделает это сам)"],
+  collection: ["Collection: %d / %d heroes (+%d%% damage, kept on rebirth)", "Коллекция: %d / %d героев (+%d%% урона, сохраняется)"],
+  no_items: ["Inventory is empty. Buy items in the Shop.", "Инвентарь пуст. Купи предметы в Лавке."], pick_item: ["Equip on %s", "Надеть на: %s"], slots_full: ["All 6 slots are full. Tap an item to unequip.", "Все 6 слотов заняты. Нажми на предмет, чтобы снять."],
+  tip_level_up: ["Hero DPS = 5 × level × item multiplier, ×2 every 25 levels. Level cost = 20 × 1.13^(level−1).", "Урон героя = 5 × уровень × множитель предметов, ×2 каждые 25 уровней. Цена уровня = 20 × 1.13^(уровень−1)."],
+  tip_hire: ["Hires a random hero for this role. New heroes join your collection permanently.", "Нанимает случайного героя на эту роль. Новые герои навсегда попадают в коллекцию."],
+  ability_nuke: ["Deals %ss of team DPS to the current enemy. CD %ss", "Наносит урон команды за %sс текущему врагу. КД %sс"], ability_gold: ["Instantly grants %ss of lane gold. CD %ss", "Мгновенно даёт золото линий за %sс. КД %sс"],
+  ability_rage: ["Team damage x2 for %ss. CD %ss", "Урон команды x2 на %sс. КД %sс"], ability_haste: ["Lane waves x2 faster for %ss. CD %ss", "Волны на линиях x2 быстрее на %sс. КД %sс"],
+  tap_to_unequip: ["Tap to unequip", "Нажми, чтобы снять"],
+  buy: ["Buy · %s", "Купить · %s"], owned: ["Owned this run: %d · In inventory: %d", "Куплено: %d · В инвентаре: %d"],
+  bonus_dmg: ["+%d%% damage", "+%d%% урона"], bonus_gold: ["+%d%% gold", "+%d%% золота"], bonus_farm: ["+%d%% farm speed", "+%d%% скорость фарма"],
+  shop_hint: ["Items go to the inventory. Equip them on heroes (Heroes tab). Damage boosts the wearer, gold/farm boosts are global.", "Предметы попадают в инвентарь. Надевай их на героев (вкладка «Герои»). Урон — для носителя, золото/скорость — глобально."],
+  inventory_count: ["Inventory: %d items", "Инвентарь: %d предм."],
+  match_n: ["Match %d · Enemy %d/%d", "Матч %d · Враг %d/%d"], attack: ["⚔ Attack!", "⚔ Атака!"], tip_attack: ["Deals 25%% of team DPS instantly. The team also fights automatically.", "Мгновенно наносит 25%% урона команды. Команда сражается и сама."],
+  battle_log: ["Battle log", "Лог боя"], time_to_kill: ["Time to kill: %s", "Время до убийства: %s"], bounty: ["Bounty: %s", "Награда: %s"], roadmap: ["Push road map", "Карта пуша"],
+  aegis_hint: ["Rosh-Khan drops the Aegis: x2 damage for 60 s.", "Рош-Хан роняет Аегис: x2 урон на 60 с."],
+  log_killed: ["Killed %s (+%s gold)", "Убит %s (+%s золота)"], log_aegis: ["🛡 Aegis acquired! x2 damage", "🛡 Получен Аегис! x2 урон"], log_ancient: ["🏛 The enemy Ancient has fallen! Rebirth is available.", "🏛 Вражеский Древний пал! Перерождение доступно."],
+  log_cast: ["%s casts %s", "%s применяет «%s»"], log_hired: ["%s joined the team", "%s присоединился к команде"], log_reborn: ["Reborn with +%d MMR", "Перерождение: +%d MMR"], log_idle_kills: ["While away the team killed %d enemies", "Пока тебя не было, команда убила %d врагов"],
+  ancient_down: ["ANCIENT DESTROYED!", "ДРЕВНИЙ УНИЧТОЖЕН!"], aegis_gained: ["AEGIS!", "АЕГИС!"],
+  mmr_current: ["MMR: %d", "MMR: %d"], mmr_bonus: ["+%d%% gold and damage (5%% per MMR)", "+%d%% к золоту и урону (5%% за 1 MMR)"], mmr_gain: ["Rebirth now: +%d MMR and +%d talent points", "Переродиться сейчас: +%d MMR и +%d очков талантов"],
+  reborn: ["♻ Reborn", "♻ Переродиться"], reborn_locked: ["Destroy the enemy Ancient to unlock rebirth (enemy %d/%d)", "Уничтожь вражеского Древнего, чтобы открыть перерождение (враг %d/%d)"],
+  reborn_resets: ["Resets: gold, heroes, items, lanes, battle progress.", "Сбрасывается: золото, герои, предметы, линии, прогресс боя."], reborn_keeps: ["Keeps: MMR, talents, hero collection, settings.", "Сохраняется: MMR, таланты, коллекция героев, настройки."],
+  reborn_confirm: ["Reborn for +%d MMR? Run progress will be reset.", "Переродиться за +%d MMR? Прогресс забега сбросится."],
+  stats: ["Rebirths: %d · Ancients destroyed: %d · Lifetime gold: %s · Play time: %s", "Перерождений: %d · Древних уничтожено: %d · Всего золота: %s · Время в игре: %s"],
+  mmr_formula: ["MMR gain = 10 × Ancients this run + √(run gold / 100M)", "MMR = 10 × Древних за забег + √(золото забега / 100M)"],
+  talent_points: ["Talent points: %d · MMR: %d", "Очки талантов: %d · MMR: %d"], talent_cost: ["%d TP · MMR %d+", "%d ОТ · MMR %d+"], talent_owned: ["✔ Learned", "✔ Изучено"],
+  talents_hint: ["Earn talent points by rebirth. Nodes unlock top to bottom and need enough MMR.", "Очки талантов дают перерождения. Узлы открываются сверху вниз и требуют MMR."],
+  branch_0: ["Greed", "Жадность"], branch_1: ["War", "Война"], branch_2: ["Utility", "Польза"],
+  welcome_back: ["Welcome back!", "С возвращением!"],
+  offline_body: ["You were away %s (credited %s at %d%% speed).\n\n+%s gold\n%d enemies defeated", "Тебя не было %s (засчитано %s на %d%% скорости).\n\n+%s золота\nПобеждено врагов: %d"],
+  offline_double: ["📺 Double it", "📺 Удвоить"],
+  settings: ["Settings", "Настройки"], language: ["Language", "Язык"], sound: ["Sound effects", "Звуки"], music: ["Music", "Музыка"],
+  remove_ads: ["Remove ads (IAP stub)", "Отключить рекламу (заглушка IAP)"], ads_removed: ["Ads removed ✔", "Реклама отключена ✔"],
+  reset_progress: ["Reset all progress", "Сбросить весь прогресс"], reset_confirm: ["Delete the save completely? This cannot be undone.", "Полностью удалить сохранение? Это необратимо."],
+  save_now: ["Save now", "Сохранить"], saved: ["Saved", "Сохранено"], long_press_hint: ["Tip: long-press buttons and cards for details.", "Подсказка: долгий тап по кнопкам и карточкам — подробности."],
+  test_tools: ["Test tools", "Инструменты теста"], test_offline: ["Simulate 2 h offline", "Симулировать 2 ч оффлайна"], test_gold: ["+ gold ×100 of current rate", "+ золото ×100 от скорости"],
+  test_note: ["Web test build. Progress is saved in this browser only.", "Веб-сборка для теста. Прогресс хранится только в этом браузере."],
+};
+function tr(key, ...args) {
+  const e = S[key]; let p = e ? (LANG === "ru" ? e[1] : e[0]) : key; let i = 0;
+  return p.replace(/%[sd%]/g, m => m === "%%" ? "%" : String(args[i++]));
+}
+const loc = (en, ru) => ({ en, ru });
+const L = o => (LANG === "ru" ? o.ru : o.en);
+
+// ---------------------------------------------------------------- number format
+const NAMED = ["", "K", "M", "B", "T"];
+function suffix(g) { if (g < NAMED.length) return NAMED[g]; const n = g - NAMED.length; return String.fromCharCode(97 + Math.floor(n / 26)) + String.fromCharCode(97 + (n % 26)); }
+function fmt(v) {
+  if (Number.isNaN(v)) return "0"; if (!Number.isFinite(v)) return v > 0 ? "∞" : "-∞";
+  const sign = v < 0 ? "-" : ""; const a = Math.abs(v);
+  if (a < 1000) return sign + (a < 100 && a !== Math.floor(a) ? (Math.floor(a * 10) / 10).toFixed(1) : String(Math.floor(a)));
+  let g = Math.floor(Math.log10(a) / 3); let m = a / Math.pow(10, g * 3);
+  if (m >= 1000) { m /= 1000; g++; } if (m < 1) { m *= 1000; g--; }
+  const t = m < 10 ? (Math.floor(m * 100) / 100).toFixed(2) : m < 100 ? (Math.floor(m * 10) / 10).toFixed(1) : String(Math.floor(m));
+  return sign + t + suffix(g);
+}
+function dur(sec) {
+  const s = Math.max(0, Math.floor(sec)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  const p2 = n => String(n).padStart(2, "0");
+  return h > 0 ? `${h}h ${p2(m)}m` : m > 0 ? `${m}m ${p2(x)}s` : `${x}s`;
+}
+
+// ---------------------------------------------------------------- balance
+const B = {
+  BASE_CREEP_GOLD: 10, WAVE_MULTIPLIER: 1.03, CREEPS_PER_WAVE: 4, BASE_WAVE_INTERVAL: 6, LANE_COST_BASE: 100, LANE_COST_GROWTH: 1.15,
+  HERO_DPS_BASE: 5, HERO_LEVEL_COST_BASE: 20, HERO_LEVEL_COST_GROWTH: 1.13, BASE_HERO_SLOTS: 5, HERO_SPIKE_LEVELS: 25,
+  HIRE: [0, 100, 1000, 8000, 60000, 400000, 3000000], ITEM_COST_GROWTH: 2.2,
+  ENEMY_HP_BASE: 100, ENEMY_HP_GROWTH: 1.12, BOUNTY_RATIO: 0.5, AEGIS_SECONDS: 60, AEGIS_DAMAGE_MULT: 2, TAP_DPS_FRACTION: 0.25,
+  RAGE_MULT: 2, HASTE_MULT: 2, MMR_BONUS_PER_POINT: 0.05, COLLECTION_BONUS_PER_HERO: 0.02,
+  OFFLINE_RATE: 0.5, OFFLINE_BASE_HOURS: 8, OFFLINE_MIN_SECONDS: 10, AD_GOLD_X2_SECONDS: 300, AD_GOLD_X2_MAX_SECONDS: 3600,
+  AD_FARM_HOURS: 4, AD_FARM_COOLDOWN_MS: 3600000, INTERSTITIAL_INTERVAL_SECONDS: 600,
+  goldPerCreep: (wave, level, hm) => B.BASE_CREEP_GOLD * Math.pow(B.WAVE_MULTIPLIER, wave) * level * hm,
+  laneUpgradeCost: lv => B.LANE_COST_BASE * Math.pow(B.LANE_COST_GROWTH, lv),
+  heroDpsMultiplier: dps => 1 + Math.log10(1 + Math.max(0, dps)),
+  heroDps: (lv, im) => B.HERO_DPS_BASE * lv * im,
+  heroSpike: lv => Math.pow(2, Math.floor(lv / B.HERO_SPIKE_LEVELS)),
+  heroLevelCost: lv => B.HERO_LEVEL_COST_BASE * Math.pow(B.HERO_LEVEL_COST_GROWTH, lv - 1),
+  hireCost: n => n < B.HIRE.length ? B.HIRE[n] : B.HIRE[B.HIRE.length - 1] * Math.pow(10, n - B.HIRE.length + 1),
+  itemCost: (base, n) => base * Math.pow(B.ITEM_COST_GROWTH, n),
+  enemyHp: i => B.ENEMY_HP_BASE * Math.pow(B.ENEMY_HP_GROWTH, i),
+  bounty: i => B.enemyHp(i) * B.BOUNTY_RATIO,
+  mmrGain: (a, rg) => a <= 0 ? 0 : 10 * a + Math.floor(Math.sqrt(rg / 1e8)),
+};
+
+// ---------------------------------------------------------------- content
+const ROLES = { CARRY: loc("Carry", "Керри"), MID: loc("Mid", "Мидер"), OFFLANE: loc("Offlane", "Оффлейн"), SUPPORT: loc("Support", "Саппорт"), FLEX: loc("Flex", "Флекс") };
+const H = (id, en, ru, role, aen, aru, type, power, cd) => ({ id, name: loc(en, ru), role, ability: { name: loc(aen, aru), type, power, cooldown: cd } });
+const HEROES = [
+  H("anti_magus", "Anti-Magus", "Анти-Магус", "CARRY", "Mana Snap", "Мана-щелчок", "NUKE", 12, 30),
+  H("jaggernot", "Jaggernot", "Джаггернот", "CARRY", "Blade Whirl", "Вихрь клинков", "RAGE", 10, 45),
+  H("phantom_lass", "Phantom Lass", "Призрачная Дева", "CARRY", "Lucky Crit", "Удачный крит", "NUKE", 10, 25),
+  H("shadow_fiendish", "Shadow Fiendish", "Теневой Изверг", "MID", "Soul Raze", "Сожжение душ", "NUKE", 15, 35),
+  H("invokah", "Invokah", "Инвоках", "MID", "Sun Smite", "Удар солнца", "NUKE", 30, 60),
+  H("storm_sprite", "Storm Sprite", "Штормовой Дух", "MID", "Static Rush", "Статический рывок", "HASTE", 10, 40),
+  H("axe_man", "Axe-Man", "Топор-Мэн", "OFFLANE", "Berserk Shout", "Крик берсерка", "RAGE", 10, 45),
+  H("tidehunger", "Tidehunger", "Голодный Прилив", "OFFLANE", "Ravenous Wave", "Жадная волна", "NUKE", 20, 50),
+  H("marzz", "Marzz", "Марзз", "OFFLANE", "Arena of Greed", "Арена жадности", "GOLD", 20, 50),
+  H("frost_maidan", "Frost Maidan", "Ледяная Майдан", "SUPPORT", "Frost Aura", "Морозная аура", "HASTE", 10, 40),
+  H("lionel", "Lionel", "Лайонел", "SUPPORT", "Finger of Greed", "Палец жадности", "GOLD", 15, 45),
+  H("witch_dok", "Witch Dok", "Знахарь Док", "SUPPORT", "Voodoo Bounty", "Вуду-награда", "GOLD", 12, 35),
+  H("dazzlin", "Dazzlin", "Ослепительный", "SUPPORT", "Shallow Bribe", "Мелкий подкуп", "RAGE", 8, 40),
+];
+const HERO_BY_ID = Object.fromEntries(HEROES.map(h => [h.id, h]));
+const STARTER = "anti_magus";
+const SLOT_ROLES = ["CARRY", "MID", "OFFLANE", "SUPPORT", "SUPPORT", "FLEX", "FLEX"];
+const candidates = role => role === "FLEX" ? HEROES : HEROES.filter(h => h.role === role);
+
+const RARITY = { COMMON: loc("Common", "Обычный"), RARE: loc("Rare", "Редкий"), EPIC: loc("Epic", "Эпический"), LEGENDARY: loc("Legendary", "Легендарный") };
+const I = (id, en, ru, rarity, baseCost, b) => ({ id, name: loc(en, ru), rarity, baseCost, dmg: b.dmg || 0, gold: b.gold || 0, farm: b.farm || 0 });
+const ITEMS = [
+  I("mango", "Mango", "Манго", "COMMON", 150, { farm: .05, dmg: .10 }),
+  I("iron_twig", "Iron Twig", "Железная Ветка", "COMMON", 200, { dmg: .25 }),
+  I("quelling_blayde", "Quelling Blayde", "Лесорубный Клинок", "COMMON", 300, { gold: .10 }),
+  I("speedy_boots", "Speedy Boots", "Шустрые Сапоги", "COMMON", 400, { farm: .10, dmg: .10 }),
+  I("battle_furry", "Battle Furry", "Боевой Пушистик", "RARE", 2500, { dmg: .50, gold: .15 }),
+  I("blinky_dagger", "Blinky Dagger", "Мигающий Кинжал", "RARE", 3500, { farm: .25, dmg: .25 }),
+  I("maelstorm", "Maelstorm", "Мальшторм", "RARE", 5000, { dmg: .90 }),
+  I("manta_styl", "Manta Styl", "Манта-Стиль", "EPIC", 30000, { dmg: 1.60 }),
+  I("black_king_bars", "Black King Bars", "Батончики Чёрного Короля", "EPIC", 45000, { dmg: 1.20, gold: .25 }),
+  I("aghas_scepter", "Agha's Scepter", "Скипетр Аги", "EPIC", 60000, { dmg: 1.00, farm: .40 }),
+  I("radiance_blade", "Radiance Blade", "Клинок Сияния", "LEGENDARY", 500000, { dmg: 3.00, gold: .40 }),
+  I("hand_of_midaz", "Hand of Midaz", "Рука Мидаза", "LEGENDARY", 750000, { gold: 1.00 }),
+  I("divine_rapiere", "Divine Rapiere", "Божественная Рапира", "LEGENDARY", 1000000, { dmg: 6.00 }),
+];
+const ITEM_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
+const SLOTS_PER_HERO = 6;
+
+const ETYPE = {
+  CREEP: { label: loc("Creep", "Крип"), icon: "🗡" }, TOWER: { label: loc("Tower", "Башня"), icon: "🗼" }, BARRACKS: { label: loc("Barracks", "Казармы"), icon: "🏯" },
+  HERO: { label: loc("Enemy Hero", "Вражеский герой"), icon: "🦹" }, ROSHAN: { label: loc("Rosh-Khan", "Рош-Хан"), icon: "🐲" }, ANCIENT: { label: loc("Ancient", "Древний"), icon: "🏛" },
+};
+const LAYOUT = (() => {
+  const melee = loc("Melee Creep", "Ближний крип"), ranged = loc("Ranged Creep", "Дальний крип"), siege = loc("Siege Creep", "Осадный крип"), mega = loc("Mega Creep", "Мега-крип");
+  const tower = t => loc(`Tier ${t} Tower`, `Башня T${t}`); const out = []; const rep = (n, f) => { for (let i = 0; i < n; i++) out.push(f(i)); };
+  rep(27, i => ["CREEP", i % 3 === 2 ? ranged : melee]); out.push(["TOWER", tower(1)]);
+  rep(18, i => ["CREEP", i % 3 === 0 ? siege : ranged]); rep(10, () => ["HERO", null]); out.push(["TOWER", tower(2)]);
+  rep(30, i => i % 3 === 0 ? ["CREEP", siege] : ["HERO", null]); out.push(["ROSHAN", null]); rep(16, () => ["HERO", null]);
+  out.push(["TOWER", tower(3)]); rep(2, () => ["BARRACKS", null]); rep(28, i => i % 2 === 0 ? ["CREEP", mega] : ["HERO", null]);
+  rep(2, () => ["TOWER", tower(4)]); out.push(["ANCIENT", null]); return out;
+})();
+const PER_MATCH = LAYOUT.length, ROSHAN_LOCAL = LAYOUT.findIndex(x => x[0] === "ROSHAN"), ANCIENT_LOCAL = PER_MATCH - 1;
+function enemyAt(index) {
+  const match = Math.floor(index / PER_MATCH), local = index % PER_MATCH; const [type, fixed] = LAYOUT[local];
+  let name = fixed;
+  if (!name) { if (type === "HERO") { const h = HEROES[(index * 7 + match * 3) % HEROES.length]; name = loc("Enemy " + h.name.en, "Вражеский " + h.name.ru); } else name = ETYPE[type].label; }
+  return { index, match, local, type, name };
+}
+const MILESTONES = LAYOUT.map((x, i) => i).filter(i => {
+  const t = LAYOUT[i][0];
+  return i === 0 || (t === "TOWER" && LAYOUT[i - 1][0] !== "TOWER") || (t === "HERO" && !LAYOUT.slice(0, i).some(y => y[0] === "HERO")) || t === "ROSHAN" || t === "ANCIENT" || (t === "BARRACKS" && LAYOUT[i - 1][0] !== "BARRACKS");
+});
+const isRoshan = i => i % PER_MATCH === ROSHAN_LOCAL, isAncient = i => i % PER_MATCH === ANCIENT_LOCAL;
+
+const TIER_MMR = [0, 20, 50, 100, 200], TIER_COST = [1, 2, 4, 6, 10];
+const T = (id, en, ru, column, tier, effect, value) => ({ id, name: loc(en, ru), column, tier, cost: TIER_COST[tier], mmr: TIER_MMR[tier], effect, value });
+const TALENTS = [
+  T("g1", "Greed I: +25% gold", "Жадность I: +25% золота", 0, 0, "GOLD_PCT", .25), T("g2", "Greed II: +50% gold", "Жадность II: +50% золота", 0, 1, "GOLD_PCT", .5),
+  T("g3", "Long Nap: +4h offline", "Долгий сон: +4ч оффлайна", 0, 2, "OFFLINE_HOURS", 4), T("g4", "Greed III: +100% gold", "Жадность III: +100% золота", 0, 3, "GOLD_PCT", 1),
+  T("g5", "Dream Farm: offline 75%", "Сонный фарм: оффлайн 75%", 0, 4, "OFFLINE_RATE", .25),
+  T("d1", "Might I: +25% damage", "Мощь I: +25% урона", 1, 0, "DMG_PCT", .25), T("d2", "Might II: +50% damage", "Мощь II: +50% урона", 1, 1, "DMG_PCT", .5),
+  T("d3", "Auto-Cast", "Авто-каст способностей", 1, 2, "AUTO_CAST", 1), T("d4", "Might III: +100% damage", "Мощь III: +100% урона", 1, 3, "DMG_PCT", 1),
+  T("d5", "Immortal: Aegis x2 time", "Бессмертный: Аегис x2 время", 1, 4, "AEGIS_DURATION", 1),
+  T("u1", "Swift Waves: +25% farm speed", "Быстрые волны: +25% скорость", 2, 0, "FARM_PCT", .25), T("u2", "Head Start: 5K start gold", "Фора: 5K стартового золота", 2, 1, "START_GOLD", 5000),
+  T("u3", "Sixth Slot: +1 hero", "Шестой слот: +1 герой", 2, 2, "HERO_SLOT", 1), T("u4", "Quick Hands: -25% cooldowns", "Быстрые руки: -25% кулдаун", 2, 3, "COOLDOWN_PCT", .25),
+  T("u5", "Seventh Slot: +1 hero", "Седьмой слот: +1 герой", 2, 4, "HERO_SLOT", 1),
+];
+const TALENT_BY_ID = Object.fromEntries(TALENTS.map(t => [t.id, t]));
+const prereq = t => { const p = TALENTS.find(x => x.column === t.column && x.tier === t.tier - 1); return p ? p.id : null; };
+
+// ---------------------------------------------------------------- state
+const newSlot = () => ({ heroId: null, level: 0, items: Array(SLOTS_PER_HERO).fill(null), cooldown: 0 });
+const newLane = () => ({ level: 1, progress: 0, killed: 0 });
+function newBattle() { return { enemyIndex: 0, enemyHp: B.enemyHp(0), ancientsKilledRun: 0, aegisLeft: 0 }; }
+function newState() {
+  const s = { saveVersion: 1, gold: 0, runGold: 0, lifetimeGold: 0, lanes: [], heroes: Array.from({ length: B.BASE_HERO_SLOTS }, newSlot), inventory: [], itemsBought: {},
+    battle: newBattle(), buffs: { goldX2Left: 0, rageLeft: 0, hasteLeft: 0 }, mmr: 0, talentPoints: 0, talents: [], collection: [], rebirths: 0, totalAncients: 0,
+    playSeconds: 0, runSeconds: 0, secondsSinceInterstitial: 0, farmAdReadyAtMillis: 0, lastSaveMillis: 0, settings: { language: "en", sound: true, music: false, noAds: false } };
+  resetRun(s, 0); return s;
+}
+function resetRun(s, startGold) {
+  s.gold = startGold; s.runGold = 0; s.runSeconds = 0; s.lanes = [newLane(), newLane(), newLane()];
+  const n = Math.max(s.heroes.length, B.BASE_HERO_SLOTS); s.heroes = Array.from({ length: n }, newSlot);
+  s.heroes[0].heroId = STARTER; s.heroes[0].level = 1; if (!s.collection.includes(STARTER)) s.collection.push(STARTER);
+  s.inventory = []; s.itemsBought = {}; s.battle = newBattle(); s.buffs = { goldX2Left: 0, rageLeft: 0, hasteLeft: 0 };
+}
+
+// ---------------------------------------------------------------- engine
+const E = {
+  s: null, events: [], log: [],
+  talentSum(effect) { let v = 0; for (const id of this.s.talents) { const t = TALENT_BY_ID[id]; if (t && t.effect === effect) v += t.value; } return v; },
+  equipped() { const r = []; for (const h of this.s.heroes) if (h.heroId) for (const id of h.items) if (id && ITEM_BY_ID[id]) r.push(ITEM_BY_ID[id]); return r; },
+  mmrMult() { return 1 + B.MMR_BONUS_PER_POINT * this.s.mmr; },
+  goldMult(buffs = true) { const items = 1 + this.equipped().reduce((a, i) => a + i.gold, 0); return items * (1 + this.talentSum("GOLD_PCT")) * this.mmrMult() * (buffs && this.s.buffs.goldX2Left > 0 ? 2 : 1); },
+  dmgMult(buffs = true) {
+    let m = (1 + this.talentSum("DMG_PCT")) * this.mmrMult() * (1 + B.COLLECTION_BONUS_PER_HERO * this.s.collection.length);
+    if (buffs) { if (this.s.battle.aegisLeft > 0) m *= B.AEGIS_DAMAGE_MULT; if (this.s.buffs.rageLeft > 0) m *= B.RAGE_MULT; } return m;
+  },
+  farmSpeed(buffs = true) { const items = 1 + this.equipped().reduce((a, i) => a + i.farm, 0); return items * (1 + this.talentSum("FARM_PCT")) * (buffs && this.s.buffs.hasteLeft > 0 ? B.HASTE_MULT : 1); },
+  itemMult(slot) { return 1 + slot.items.reduce((a, id) => a + (id && ITEM_BY_ID[id] ? ITEM_BY_ID[id].dmg : 0), 0); },
+  heroDps(slot, buffs = true) { return slot.heroId ? B.heroDps(slot.level, this.itemMult(slot)) * B.heroSpike(slot.level) * this.dmgMult(buffs) : 0; },
+  teamDps(buffs = true) { return this.s.heroes.reduce((a, h) => a + this.heroDps(h, buffs), 0); },
+  heroDpsMult() { return B.heroDpsMultiplier(this.teamDps(false)); },
+  waveInterval(buffs = true) { return B.BASE_WAVE_INTERVAL / this.farmSpeed(buffs); },
+  goldPerCreep(i, buffs = true) { const l = this.s.lanes[i]; return B.goldPerCreep(l.level - 1, l.level, this.heroDpsMult()) * this.goldMult(buffs); },
+  laneGps(i, buffs = true) { return B.CREEPS_PER_WAVE * this.goldPerCreep(i, buffs) / this.waveInterval(buffs); },
+  gps(buffs = true) { return this.s.lanes.reduce((a, l, i) => a + this.laneGps(i, buffs), 0); },
+  maxOffline() { return (B.OFFLINE_BASE_HOURS + this.talentSum("OFFLINE_HOURS")) * 3600; },
+  offlineRate() { return B.OFFLINE_RATE + this.talentSum("OFFLINE_RATE"); },
+  abilityCd(slot) { const d = HERO_BY_ID[slot.heroId]; return d ? d.ability.cooldown * (1 - this.talentSum("COOLDOWN_PCT")) : 0; },
+  autoCast() { return this.talentSum("AUTO_CAST") > 0; },
+  hired() { return this.s.heroes.filter(h => h.heroId).length; },
+
+  tick(dt) {
+    const s = this.s; s.playSeconds += dt; s.runSeconds += dt; s.secondsSinceInterstitial += dt;
+    const b = s.buffs; b.goldX2Left = Math.max(0, b.goldX2Left - dt); b.rageLeft = Math.max(0, b.rageLeft - dt); b.hasteLeft = Math.max(0, b.hasteLeft - dt);
+    s.battle.aegisLeft = Math.max(0, s.battle.aegisLeft - dt);
+    const interval = this.waveInterval();
+    s.lanes.forEach((lane, i) => {
+      lane.progress += dt / interval;
+      while (lane.progress >= 1) { lane.progress -= 1; lane.killed += B.CREEPS_PER_WAVE; const g = B.CREEPS_PER_WAVE * this.goldPerCreep(i); this.addGold(g); this.events.push({ t: "lane", lane: i, gold: g }); }
+    });
+    const auto = this.autoCast();
+    s.heroes.forEach((h, i) => { if (!h.heroId) return; h.cooldown = Math.max(0, h.cooldown - dt); if (auto && h.cooldown <= 0) this.cast(i); });
+    this.damage(this.teamDps() * dt);
+  },
+  addGold(x) { if (!(x > 0)) return; this.s.gold += x; this.s.runGold += x; this.s.lifetimeGold += x; },
+  addLog(fn) { this.log.unshift({ time: this.s.runSeconds, text: fn }); if (this.log.length > 40) this.log.pop(); },
+  damage(amount, quiet = false) {
+    let left = amount, kills = 0; const bt = this.s.battle;
+    while (left > 0) {
+      if (left < bt.enemyHp) { bt.enemyHp -= left; break; }
+      left -= bt.enemyHp; kills++;
+      const idx = bt.enemyIndex, en = enemyAt(idx), bounty = B.bounty(idx) * this.goldMult(); this.addGold(bounty);
+      if (!quiet) { this.events.push({ t: "kill", gold: bounty }); this.addLog(() => tr("log_killed", L(en.name), fmt(bounty))); }
+      if (isRoshan(idx)) { bt.aegisLeft = B.AEGIS_SECONDS * (1 + this.talentSum("AEGIS_DURATION")); if (!quiet) { this.events.push({ t: "aegis" }); this.addLog(() => tr("log_aegis")); } }
+      if (isAncient(idx)) { bt.ancientsKilledRun++; this.s.totalAncients++; if (!quiet) { this.events.push({ t: "ancient" }); this.addLog(() => tr("log_ancient")); } }
+      bt.enemyIndex++; bt.enemyHp = B.enemyHp(bt.enemyIndex);
+    }
+    return kills;
+  },
+  spend(c) { if (!(this.s.gold >= c)) return false; this.s.gold -= c; return true; },
+  laneCost(i) { return B.laneUpgradeCost(this.s.lanes[i].level); },
+  upgradeLane(i) { if (!this.spend(this.laneCost(i))) return false; this.s.lanes[i].level++; return true; },
+  levelCost(i) { return B.heroLevelCost(this.s.heroes[i].level); },
+  levelUp(i) { const h = this.s.heroes[i]; if (!h || !h.heroId || !this.spend(this.levelCost(i))) return false; h.level++; return true; },
+  hireCost() { return B.hireCost(this.hired()); },
+  hire(i) {
+    const h = this.s.heroes[i]; if (!h || h.heroId) return false;
+    const inTeam = new Set(this.s.heroes.map(x => x.heroId).filter(Boolean));
+    const pool = candidates(SLOT_ROLES[i]).filter(x => !inTeam.has(x.id)); if (!pool.length || !this.spend(this.hireCost())) return false;
+    const fresh = pool.filter(x => !this.s.collection.includes(x.id)); const src = fresh.length ? fresh : pool; const pick = src[Math.floor(Math.random() * src.length)];
+    Object.assign(h, { heroId: pick.id, level: 1, cooldown: 0, items: Array(SLOTS_PER_HERO).fill(null) });
+    if (!this.s.collection.includes(pick.id)) this.s.collection.push(pick.id);
+    this.addLog(() => tr("log_hired", L(pick.name))); return true;
+  },
+  itemCost(id) { return B.itemCost(ITEM_BY_ID[id].baseCost, this.s.itemsBought[id] || 0); },
+  buyItem(id) { if (!ITEM_BY_ID[id] || !this.spend(this.itemCost(id))) return false; this.s.itemsBought[id] = (this.s.itemsBought[id] || 0) + 1; this.s.inventory.push(id); return true; },
+  equip(slot, id) {
+    const h = this.s.heroes[slot]; if (!h || !h.heroId) return false; const k = this.s.inventory.indexOf(id); if (k < 0) return false;
+    const free = h.items.indexOf(null); if (free < 0) return false; this.s.inventory.splice(k, 1); h.items[free] = id; return true;
+  },
+  unequip(slot, j) { const h = this.s.heroes[slot]; const id = h && h.items[j]; if (!id) return false; h.items[j] = null; this.s.inventory.push(id); return true; },
+  cast(i) {
+    const h = this.s.heroes[i]; const d = h && HERO_BY_ID[h.heroId]; if (!d || h.cooldown > 0) return false; const a = d.ability;
+    if (a.type === "NUKE") this.damage(this.teamDps() * a.power);
+    else if (a.type === "GOLD") { const g = this.gps() * a.power; this.addGold(g); this.events.push({ t: "gold", gold: g }); }
+    else if (a.type === "RAGE") this.s.buffs.rageLeft = Math.max(this.s.buffs.rageLeft, a.power);
+    else this.s.buffs.hasteLeft = Math.max(this.s.buffs.hasteLeft, a.power);
+    h.cooldown = this.abilityCd(h); this.events.push({ t: "cast" }); this.addLog(() => tr("log_cast", L(d.name), L(a.name))); return true;
+  },
+  tap() { const d = Math.max(1, this.teamDps() * B.TAP_DPS_FRACTION); this.damage(d); return d; },
+  canRebirth() { return this.s.battle.ancientsKilledRun >= 1; },
+  mmrPreview() { return B.mmrGain(this.s.battle.ancientsKilledRun, this.s.runGold); },
+  rebirth() {
+    if (!this.canRebirth()) return 0; const g = this.mmrPreview(); this.s.mmr += g; this.s.talentPoints += g; this.s.rebirths++;
+    resetRun(this.s, this.talentSum("START_GOLD")); this.normalize(); this.log = []; this.addLog(() => tr("log_reborn", g)); return g;
+  },
+  talentStatus(id) {
+    const t = TALENT_BY_ID[id]; if (this.s.talents.includes(id)) return "OWNED"; const p = prereq(t);
+    if (this.s.mmr < t.mmr || (p && !this.s.talents.includes(p))) return "LOCKED"; if (this.s.talentPoints < t.cost) return "NO_POINTS"; return "AVAILABLE";
+  },
+  buyTalent(id) { if (this.talentStatus(id) !== "AVAILABLE") return false; this.s.talentPoints -= TALENT_BY_ID[id].cost; this.s.talents.push(id); this.normalize(); return true; },
+  idle(seconds, rate) {
+    const before = this.s.lifetimeGold; this.addGold(this.gps(false) * seconds * rate);
+    const lk = Math.floor(seconds * rate / this.waveInterval(false)) * B.CREEPS_PER_WAVE; this.s.lanes.forEach(l => l.killed += lk);
+    const kills = this.damage(this.teamDps(false) * seconds * rate, true); if (kills > 0) this.addLog(() => tr("log_idle_kills", kills));
+    return { awaySeconds: seconds, creditedSeconds: seconds, gold: this.s.lifetimeGold - before, kills };
+  },
+  applyOffline(now) {
+    const last = this.s.lastSaveMillis; this.s.lastSaveMillis = now; if (last <= 0 || now <= last) return null;
+    const away = (now - last) / 1000; if (away < B.OFFLINE_MIN_SECONDS) return null; const credited = Math.min(away, this.maxOffline());
+    const b = this.s.buffs; b.goldX2Left = Math.max(0, b.goldX2Left - away); b.rageLeft = 0; b.hasteLeft = 0; this.s.battle.aegisLeft = 0; this.s.heroes.forEach(h => h.cooldown = 0);
+    const r = this.idle(credited, this.offlineRate()); r.awaySeconds = away; r.creditedSeconds = credited; return r;
+  },
+  grantGold(x) { this.addGold(x); this.events.push({ t: "gold", gold: x }); },
+  goldX2() { this.s.buffs.goldX2Left = Math.min(B.AD_GOLD_X2_MAX_SECONDS, this.s.buffs.goldX2Left + B.AD_GOLD_X2_SECONDS); },
+  farmReady(now) { return now >= this.s.farmAdReadyAtMillis; },
+  claimFarm(now) { if (!this.farmReady(now)) return null; this.s.farmAdReadyAtMillis = now + B.AD_FARM_COOLDOWN_MS; const r = this.idle(B.AD_FARM_HOURS * 3600, this.offlineRate()); this.events.push({ t: "gold", gold: r.gold }); return r; },
+  normalize() {
+    const s = this.s; const slots = Math.min(SLOT_ROLES.length, B.BASE_HERO_SLOTS + Math.floor(this.talentSum("HERO_SLOT")));
+    while (s.heroes.length < slots) s.heroes.push(newSlot()); while (s.lanes.length < 3) s.lanes.push(newLane());
+    s.heroes.forEach(h => { if (h.heroId && !HERO_BY_ID[h.heroId]) { h.heroId = null; h.level = 0; } while (h.items.length < SLOTS_PER_HERO) h.items.push(null); h.items = h.items.map(id => id && ITEM_BY_ID[id] ? id : null); if (h.heroId && h.level < 1) h.level = 1; });
+    if (!s.heroes.some(h => h.heroId)) { s.heroes[0].heroId = STARTER; s.heroes[0].level = 1; }
+    s.inventory = s.inventory.filter(id => ITEM_BY_ID[id]); s.talents = s.talents.filter(id => TALENT_BY_ID[id]);
+    if (!Number.isFinite(s.gold) || s.gold < 0) s.gold = 0; if (!Number.isFinite(s.battle.enemyHp) || s.battle.enemyHp <= 0) s.battle.enemyHp = B.enemyHp(s.battle.enemyIndex);
+  },
+};
+
+// ---------------------------------------------------------------- save (localStorage)
+const SAVE_KEY = "dota-idle-ancient-war-save-v1";
+function loadState() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; const o = JSON.parse(raw); const s = newState();
+    for (const k of Object.keys(s)) if (o[k] !== undefined) s[k] = o[k];
+    s.settings = Object.assign(newState().settings, o.settings || {}); s.buffs = Object.assign({ goldX2Left: 0, rageLeft: 0, hasteLeft: 0 }, o.buffs || {}); s.battle = Object.assign(newBattle(), o.battle || {});
+    return s;
+  } catch (e) { return null; }
+}
+function saveNow() { E.s.lastSaveMillis = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(E.s)); } catch (e) {} }
+
+// ---------------------------------------------------------------- audio (WebAudio synth placeholders)
+const Audio_ = {
+  ctx: null, last: {}, musicTimer: null,
+  ensure() { if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (this.ctx && this.ctx.state === "suspended") this.ctx.resume(); },
+  tone(f, d, v, type = "sine", slide = 0, when = 0) {
+    const c = this.ctx; if (!c) return; const t = c.currentTime + when, o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.linearRampToValueAtTime(Math.max(30, f + slide * d), t + d);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + d + 0.02);
+  },
+  play(name, minMs = 60) {
+    if (!E.s.settings.sound || !this.ctx) return; const now = performance.now(); if (now - (this.last[name] || 0) < minMs) return; this.last[name] = now;
+    if (name === "click") this.tone(1200, .05, .15);
+    else if (name === "gold") { this.tone(1320, .07, .08); this.tone(1760, .1, .08, "sine", 0, .06); }
+    else if (name === "kill") this.tone(140, .18, .2, "triangle", -300);
+    else if (name === "cast") this.tone(400, .25, .08, "square", 2400);
+    else if (name === "big") [220, 261.6, 329.6, 440].forEach(f => this.tone(f, 1, .07));
+  },
+  music(on) {
+    clearInterval(this.musicTimer); this.musicTimer = null; if (!on || !this.ctx) return;
+    const chords = [[57, 60, 64], [53, 57, 60], [55, 59, 62], [52, 56, 59]], hz = m => 440 * Math.pow(2, (m - 69) / 12); let bar = 0;
+    const playBar = () => { const ch = chords[bar++ % 4], beat = 60 / 84; for (let s = 0; s < 8; s++) this.tone(hz(ch[s % 3] + (s >= 4 ? 12 : 0)), beat * 1.2, .03, "sine", 0, s * beat / 2); this.tone(hz(ch[0] - 12), beat * 4, .04, "sine"); };
+    playBar(); this.musicTimer = setInterval(playBar, (60 / 84) * 4 * 1000);
+  },
+};
+
+// ---------------------------------------------------------------- app state (UI)
+const UI = { tab: "lanes", offline: null, tooltip: null, tooltipTimer: 0, toast: null, toastTimer: 0, banner: null, bannerTimer: 0, settings: false, confirmReset: false, confirmRebirth: false, equipFor: null, ad: null, lastTick: performance.now() };
+const TABS = [["lanes", "🛣", "tab_lanes"], ["heroes", "🦸", "tab_heroes"], ["shop", "🛒", "tab_shop"], ["battle", "⚔", "tab_battle"], ["rebirth", "♻", "tab_rebirth"], ["talents", "🌟", "tab_talents"]];
+const LANE_KEYS = ["lane_top", "lane_mid", "lane_bot"];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const btn = (label, action, { dis = false, cls = "", tip = "" } = {}) => `<button class="btn ${cls}" data-act="${action}"${dis ? " disabled" : ""}${tip ? ` data-tip="${esc(tip)}"` : ""}>${esc(label)}</button>`;
+const itemBonus = it => [it.dmg > 0 ? tr("bonus_dmg", Math.round(it.dmg * 100)) : "", it.gold > 0 ? tr("bonus_gold", Math.round(it.gold * 100)) : "", it.farm > 0 ? tr("bonus_farm", Math.round(it.farm * 100)) : ""].filter(Boolean).join(" · ");
+function abilityText(a, cd) { return L(a.name) + ": " + tr({ NUKE: "ability_nuke", GOLD: "ability_gold", RAGE: "ability_rage", HASTE: "ability_haste" }[a.type], Math.round(a.power), Math.round(cd)); }
+
+// ---------------------------------------------------------------- rendering
+function renderTop() {
+  const s = E.s, b = s.buffs; const chips = [];
+  if (b.goldX2Left > 0) chips.push([tr("buff_x2", dur(b.goldX2Left)), "var(--gold)"]);
+  if (s.battle.aegisLeft > 0) chips.push([tr("buff_aegis", dur(s.battle.aegisLeft)), "var(--blue)"]);
+  if (b.rageLeft > 0) chips.push([tr("buff_rage", dur(b.rageLeft)), "var(--red-hi)"]);
+  if (b.hasteLeft > 0) chips.push([tr("buff_haste", dur(b.hasteLeft)), "var(--green)"]);
+  return `<div class="top-row"><div class="gold-big" data-anchor="top">🪙 ${fmt(s.gold)}</div>
+    <div class="rates"><div class="g">${esc(tr("per_sec", fmt(E.gps())))}</div><div class="d">⚔ ${fmt(E.teamDps())} ${esc(tr("dps"))}</div></div>
+    <button class="gear" data-act="settings" aria-label="${esc(tr("settings"))}">⚙</button></div>
+    ${chips.length ? `<div class="chips">${chips.map(([t, c]) => `<span class="chip" style="color:${c}">${esc(t)}</span>`).join("")}</div>` : ""}`;
+}
+function renderNav() {
+  const anyTalent = TALENTS.some(t => E.talentStatus(t.id) === "AVAILABLE");
+  return TABS.map(([id, ic, key]) => {
+    const dot = (id === "rebirth" && E.canRebirth()) || (id === "talents" && anyTalent);
+    return `<button class="tab${UI.tab === id ? " on" : ""}" data-act="tab:${id}"><span class="ic">${ic}</span><span class="lb">${esc(tr(key))}</span>${dot ? '<span class="dot"></span>' : ""}</button>`;
+  }).join("");
+}
+function scrLanes() {
+  const now = Date.now(), ready = E.farmReady(now);
+  let h = `<div class="btns">${btn(tr("ad_x2"), "adx2", { cls: "goldish sm", tip: tr("tip_ad_x2") })}${btn(ready ? tr("ad_farm") : tr("ad_farm_cd", dur((E.s.farmAdReadyAtMillis - now) / 1000)), "adfarm", { cls: "goldish sm", dis: !ready, tip: tr("tip_ad_farm") })}</div>
+    <div class="muted num">${esc(tr("lanes_total", fmt(E.gps()), E.waveInterval().toFixed(1)))}</div>`;
+  E.s.lanes.forEach((l, i) => {
+    const iv = E.waveInterval(), cost = E.laneCost(i);
+    h += `<div class="card" data-anchor="lane${i}">
+      <div class="row"><div class="h grow">${esc(tr(LANE_KEYS[i]))}</div><div class="num" style="color:var(--gold)">${esc(tr("per_sec", fmt(E.laneGps(i))))}</div></div>
+      <div class="muted num">${esc(tr("lane_info", l.level, l.level - 1, fmt(E.goldPerCreep(i))))}</div>
+      <canvas class="lane" data-lane="${i}" width="600" height="128"></canvas>
+      <div class="bar lane"><i data-bar="lane:${i}"></i></div>
+      <div class="row muted num"><span class="grow">${esc(tr("lane_killed", fmt(l.killed)))}</span><span>${esc(tr("lane_next_wave", dur((1 - l.progress) * iv + 0.99)))}</span></div>
+      ${btn(tr("upgrade_wave", fmt(cost)), "lane:" + i, { dis: E.s.gold < cost, tip: tr("tip_upgrade_wave") })}</div>`;
+  });
+  return h;
+}
+function scrHeroes() {
+  const c = E.s.collection.length;
+  let h = `<div><div class="h" style="color:var(--red-hi)">${esc(tr("team_dps", fmt(E.teamDps())))}</div>
+    <div class="muted">${esc(E.autoCast() ? tr("auto_cast_on") : tr("auto_cast_off"))}</div>
+    <div class="muted">${esc(tr("collection", c, HEROES.length, Math.round(c * B.COLLECTION_BONUS_PER_HERO * 100)))}</div></div>`;
+  E.s.heroes.forEach((s, i) => {
+    const role = ROLES[SLOT_ROLES[i]], d = HERO_BY_ID[s.heroId];
+    if (!d) { const cost = E.hireCost(); h += `<div class="card"><div class="row"><span class="chip" style="color:var(--muted)">${esc(L(role))}</span><span class="muted">${esc(tr("empty_slot", L(role)))}</span></div>${btn(tr("hire_hero", fmt(cost)), "hire:" + i, { dis: E.s.gold < cost, tip: tr("tip_hire") })}</div>`; return; }
+    const cdMax = E.abilityCd(s), ready = s.cooldown <= 0, cost = E.levelCost(i);
+    const slots = s.items.map((id, j) => { const it = ITEM_BY_ID[id]; if (!it) return `<div class="slot" data-act="equip:${i}">+</div>`;
+      const ab = L(it.name).split(" ").map(w => w[0]).join("").slice(0, 3);
+      return `<div class="slot r-${it.rarity}" data-act="unequip:${i}:${j}" data-tip="${esc(`${L(it.name)} (${L(RARITY[it.rarity])}): ${itemBonus(it)}. ${tr("tap_to_unequip")}`)}">${esc(ab)}</div>`; }).join("");
+    h += `<div class="card acc-gold"><div class="row"><span class="chip" style="color:var(--gold)">${esc(L(role))}</span><span class="name grow">${esc(L(d.name))}</span><b style="color:var(--gold)" class="num">${esc(tr("level_short", s.level))}</b></div>
+      <div class="muted num">${esc(tr("hero_dps", fmt(E.heroDps(s)), E.itemMult(s).toFixed(2)))}</div>
+      <div class="items">${slots}</div>
+      ${btn(ready ? tr("ability_ready", L(d.ability.name)) : tr("ability_cd", L(d.ability.name), dur(s.cooldown + 0.99)), "cast:" + i, { dis: !ready, cls: "blue sm", tip: abilityText(d.ability, cdMax) })}
+      ${ready ? "" : `<div class="bar thin blue"><i data-bar="cd:${i}"></i></div>`}
+      <div class="btns">${btn(tr("level_up", fmt(cost)), "lvl:" + i, { dis: E.s.gold < cost, tip: tr("tip_level_up") })}${btn(tr("equip_item"), "equip:" + i, { cls: "dark", dis: !E.s.inventory.length })}</div></div>`;
+  });
+  return h;
+}
+function scrShop() {
+  let h = `<div><div class="muted">${esc(tr("shop_hint"))}</div><div style="color:var(--gold);font-weight:700;margin-top:4px">${esc(tr("inventory_count", E.s.inventory.length))}</div></div>`;
+  for (const it of ITEMS) {
+    const cost = E.itemCost(it.id);
+    h += `<div class="card r-${it.rarity}" data-tip="${esc(L(it.name) + ": " + itemBonus(it))}"><div class="row"><span class="name grow r-${it.rarity}" style="border:0">${esc(L(it.name))}</span><span class="chip r-${it.rarity}">${esc(L(RARITY[it.rarity]))}</span></div>
+      <div>${esc(itemBonus(it))}</div><div class="muted">${esc(tr("owned", E.s.itemsBought[it.id] || 0, E.s.inventory.filter(x => x === it.id).length))}</div>
+      <div class="btns"><span></span>${btn(tr("buy", fmt(cost)), "buy:" + it.id, { dis: E.s.gold < cost })}</div></div>`;
+  }
+  return h;
+}
+function scrBattle() {
+  const b = E.s.battle, en = enemyAt(b.enemyIndex), maxHp = B.enemyHp(b.enemyIndex), dps = E.teamDps();
+  const acc = { ROSHAN: ["acc-blue", "var(--blue)"], ANCIENT: ["acc-gold2", "var(--gold)"], TOWER: ["acc-red", "var(--red-hi)"], BARRACKS: ["acc-red", "var(--red-hi)"] }[en.type] || ["", "var(--muted)"];
+  let h = `<div class="card ${acc[0]}" data-anchor="battle"><div class="muted num">${esc(tr("match_n", en.match + 1, en.local + 1, PER_MATCH))}</div>
+    <div class="row"><div class="enemy-ic">${ETYPE[en.type].icon}</div><div class="grow"><div class="name" style="font-size:20px">${esc(L(en.name))}</div><span class="chip" style="color:${acc[1]}">${esc(L(ETYPE[en.type].label))}</span></div></div>
+    <div class="bar red tall"><i data-bar="hp"></i></div>
+    <div class="row num"><span class="grow">${fmt(b.enemyHp)} / ${fmt(maxHp)}</span><span class="muted">${esc(tr("time_to_kill", dps > 0 ? dur(b.enemyHp / dps) : "∞"))}</span></div>
+    <div class="muted num">${esc(tr("bounty", fmt(B.bounty(b.enemyIndex) * E.goldMult())))}</div><div class="muted num">${esc(tr("team_dps", fmt(dps)))}</div></div>
+    ${btn(tr("attack"), "tap", { cls: "big", tip: tr("tip_attack") })}
+    <div class="card" data-tip="${esc(tr("aegis_hint"))}"><div class="h">${esc(tr("roadmap"))}</div>`;
+  for (const local of MILESTONES) {
+    const t = enemyAt(en.match * PER_MATCH + local); const [mark, col] = local < en.local ? ["✔", "var(--green)"] : local === en.local ? ["▶", "var(--gold)"] : ["•", "var(--muted)"];
+    h += `<div class="row"><span class="grow" style="color:${col}">${mark} ${ETYPE[t.type].icon} ${esc(L(t.name))}</span><span class="muted num">#${local + 1}</span></div>`;
+  }
+  h += `<div class="muted">${esc(tr("aegis_hint"))}</div></div><div class="card"><div class="h">${esc(tr("battle_log"))}</div><div class="log">${E.log.slice(0, 15).map(e => `<div>[${dur(e.time)}] ${esc(e.text())}</div>`).join("")}</div></div>`;
+  return h;
+}
+function scrRebirth() {
+  const s = E.s, g = E.mmrPreview();
+  return `<div class="card acc-gold2"><div style="font-family:var(--f-display);font-size:34px;color:var(--gold)">${esc(tr("mmr_current", s.mmr))}</div><div>${esc(tr("mmr_bonus", Math.round(s.mmr * B.MMR_BONUS_PER_POINT * 100)))}</div></div>
+    <div class="card">${E.canRebirth() ? `<div style="color:var(--gold);font-weight:700;font-size:16px">${esc(tr("mmr_gain", g, g))}</div>` : `<div class="muted">${esc(tr("reborn_locked", s.battle.enemyIndex % PER_MATCH + 1, PER_MATCH))}</div>`}
+      ${btn(tr("reborn"), "rebirth", { dis: !E.canRebirth(), cls: "big", tip: tr("mmr_formula") })}
+      <div style="color:var(--red-hi)">${esc(tr("reborn_resets"))}</div><div style="color:var(--green)">${esc(tr("reborn_keeps"))}</div><div class="muted">${esc(tr("mmr_formula"))}</div></div>
+    <div class="muted num">${esc(tr("stats", s.rebirths, s.totalAncients, fmt(s.lifetimeGold), dur(s.playSeconds)))}</div>`;
+}
+function scrTalents() {
+  let h = `<div><div class="h">${esc(tr("talent_points", E.s.talentPoints, E.s.mmr))}</div><div class="muted">${esc(tr("talents_hint"))}</div></div><div class="talents">`;
+  for (let c = 0; c < 3; c++) {
+    h += `<div class="col"><div class="h" style="text-align:center;font-size:15px">${esc(tr("branch_" + c))}</div>`;
+    for (const t of TALENTS.filter(x => x.column === c)) {
+      const st = E.talentStatus(t.id); const acc = { OWNED: ["acc-green", "var(--green)"], AVAILABLE: ["acc-gold2", "var(--gold)"], NO_POINTS: ["acc-gold", "var(--gold-dim)"], LOCKED: ["", "var(--muted)"] }[st];
+      h += `<div class="card tnode ${acc[0]}${st === "LOCKED" ? " locked" : ""}" data-act="talent:${t.id}" data-tip="${esc(L(t.name) + " — " + tr("talent_cost", t.cost, t.mmr))}" tabindex="0"><b>${esc(L(t.name))}</b><span style="color:${acc[1]}">${esc(st === "OWNED" ? tr("talent_owned") : tr("talent_cost", t.cost, t.mmr))}</span></div>`;
+    }
+    h += `</div>`;
+  }
+  return h + `</div>`;
+}
+function renderLayers() {
+  let h = "";
+  if (UI.offline) {
+    const r = UI.offline;
+    h += `<div class="overlay"><div class="dialog"><h2>${esc(tr("welcome_back"))}</h2><p>${esc(tr("offline_body", dur(r.awaySeconds), dur(r.creditedSeconds), Math.round(E.offlineRate() * 100), fmt(r.gold), r.kills))}</p>
+      <div class="btns">${btn(tr("offline_double"), "offdouble", { cls: "dark sm" })}${btn(tr("ok"), "offok", { cls: "sm" })}</div></div></div>`;
+  } else if (UI.settings) {
+    const st = E.s.settings;
+    h += `<div class="overlay" data-act="closesettings-bg"><div class="dialog"><h2>${esc(tr("settings"))}</h2>
+      <div>${esc(tr("language"))}</div><div class="btns">${btn("English", "lang:en", { cls: (st.language === "en" ? "" : "dark") + " sm" })}${btn("Русский", "lang:ru", { cls: (st.language === "ru" ? "" : "dark") + " sm" })}</div>
+      <label class="switch"><span>${esc(tr("sound"))}</span><input type="checkbox" id="set-sound" data-act="sound"${st.sound ? " checked" : ""}></label>
+      <label class="switch"><span>${esc(tr("music"))}</span><input type="checkbox" id="set-music" data-act="music"${st.music ? " checked" : ""}></label>
+      ${st.noAds ? `<div style="color:var(--green)">${esc(tr("ads_removed"))}</div>` : btn(tr("remove_ads"), "noads", { cls: "goldish sm" })}
+      ${btn(tr("save_now"), "save", { cls: "dark sm" })}
+      ${UI.confirmReset ? `<div style="color:var(--red-hi)">${esc(tr("reset_confirm"))}</div><div class="btns">${btn(tr("cancel"), "resetno", { cls: "dark sm" })}${btn(tr("ok"), "resetyes", { cls: "sm" })}</div>` : btn(tr("reset_progress"), "reset", { cls: "sm" })}
+      <div class="testbox"><div class="lbl">${esc(tr("test_tools"))}</div>${btn(tr("test_offline"), "test-offline", { cls: "dark sm" })}${btn(tr("test_gold"), "test-gold", { cls: "dark sm" })}<div class="muted">${esc(tr("test_note"))}</div></div>
+      <div class="muted">${esc(tr("long_press_hint"))}</div>${btn(tr("close"), "closesettings", { cls: "dark sm" })}</div></div>`;
+  } else if (UI.confirmRebirth) {
+    h += `<div class="overlay"><div class="dialog"><p>${esc(tr("reborn_confirm", E.mmrPreview()))}</p><div class="btns">${btn(tr("cancel"), "rebirthno", { cls: "dark sm" })}${btn(tr("reborn"), "rebirthyes", { cls: "sm" })}</div></div></div>`;
+  } else if (UI.equipFor !== null) {
+    const slot = E.s.heroes[UI.equipFor], d = HERO_BY_ID[slot.heroId]; const counts = {}; E.s.inventory.forEach(id => counts[id] = (counts[id] || 0) + 1);
+    const ids = Object.keys(counts).sort((a, b) => ITEM_BY_ID[b].baseCost - ITEM_BY_ID[a].baseCost);
+    let body = !ids.length ? `<div class="muted">${esc(tr("no_items"))}</div>` : !slot.items.includes(null) ? `<div class="muted">${esc(tr("slots_full"))}</div>` :
+      ids.map(id => { const it = ITEM_BY_ID[id]; return `<div class="card r-${it.rarity}" data-act="equipitem:${id}" tabindex="0" style="cursor:pointer"><b class="r-${it.rarity}" style="border:0">${esc(L(it.name))} ×${counts[id]}</b><span class="muted">${esc(itemBonus(it))}</span></div>`; }).join("");
+    h += `<div class="overlay"><div class="dialog"><h2>${esc(tr("pick_item", d ? L(d.name) : ""))}</h2>${body}${btn(tr("close"), "equipclose", { cls: "dark sm" })}</div></div>`;
+  }
+  if (UI.ad) h += `<div class="ad"><div><div class="tv">📺</div><h3>${esc(tr("ad_placeholder"))}</h3><div>${esc(tr(UI.ad.rewarded ? "ad_closing_in" : "ad_interstitial_in", UI.ad.left))}</div>${UI.ad.rewarded ? "" : `<div class="muted" style="margin-top:8px">${esc(tr("ad_remove_hint"))}</div>`}</div></div>`;
+  if (UI.tooltip) h += `<div class="tooltip" data-act="tipclose">${esc(UI.tooltip)}</div>`;
+  if (UI.toast) h += `<div class="toast">${esc(UI.toast)}</div>`;
+  if (UI.banner) h += `<div class="banner">${esc(UI.banner)}</div>`;
+  return h;
+}
+
+// Minimal DOM patcher: keeps existing elements so taps and long-presses survive 10 Hz re-renders.
+function patch(parent, html) {
+  const tpl = document.createElement("template"); tpl.innerHTML = html; patchChildren(parent, tpl.content);
+}
+function patchChildren(a, b) {
+  const an = a.childNodes, bn = Array.from(b.childNodes);
+  for (let i = 0; i < bn.length; i++) { const o = an[i], n = bn[i]; if (!o) a.appendChild(n.cloneNode(true)); else patchNode(o, n); }
+  while (an.length > bn.length) a.removeChild(a.lastChild);
+}
+function patchNode(o, n) {
+  if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName || (o.dataset && n.dataset && o.dataset.lane !== n.dataset.lane)) { o.replaceWith(n.cloneNode(true)); return; }
+  if (o.nodeType === 3) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return; }
+  if (o.nodeType !== 1) return;
+  const keepStyle = o.hasAttribute("data-bar");
+  for (const at of Array.from(o.attributes)) if (!n.hasAttribute(at.name) && !(keepStyle && at.name === "style")) o.removeAttribute(at.name);
+  for (const at of Array.from(n.attributes)) if (o.getAttribute(at.name) !== at.value) o.setAttribute(at.name, at.value);
+  if (o.tagName === "INPUT" && o.checked !== n.hasAttribute("checked")) o.checked = n.hasAttribute("checked");
+  if (o.tagName === "BUTTON") o.disabled = n.hasAttribute("disabled");
+  if (o.tagName !== "CANVAS") patchChildren(o, n);
+}
+
+const $top = document.getElementById("top"), $screen = document.getElementById("screen"), $nav = document.getElementById("nav"), $layers = document.getElementById("layers");
+const SCREENS = { lanes: scrLanes, heroes: scrHeroes, shop: scrShop, battle: scrBattle, rebirth: scrRebirth, talents: scrTalents };
+function render() {
+  LANG = E.s.settings.language; document.documentElement.lang = LANG;
+  patch($top, renderTop()); patch($nav, renderNav()); patch($screen, SCREENS[UI.tab]()); patch($layers, renderLayers());
+}
+
+// ---------------------------------------------------------------- events → floaters & sounds
+function floater(anchor, text, color) {
+  const el = document.querySelector(`[data-anchor="${anchor}"]`); if (!el) return; const r = el.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) return;
+  const f = document.createElement("div"); f.className = "floater"; f.textContent = text; f.style.color = color;
+  f.style.left = (r.left + r.width * (0.35 + Math.random() * 0.4)) + "px"; f.style.top = (r.top + r.height * 0.45) + "px";
+  document.body.appendChild(f); setTimeout(() => f.remove(), 1250);
+}
+function showBanner(t) { UI.banner = t; clearTimeout(UI.bannerTimer); UI.bannerTimer = setTimeout(() => { UI.banner = null; render(); }, 2200); Audio_.play("big", 500); }
+function showToast(t) { UI.toast = t; clearTimeout(UI.toastTimer); UI.toastTimer = setTimeout(() => { UI.toast = null; render(); }, 3500); }
+function showTip(t) { UI.tooltip = t; clearTimeout(UI.tooltipTimer); UI.tooltipTimer = setTimeout(() => { UI.tooltip = null; render(); }, 4000); render(); }
+function drain() {
+  for (const e of E.events.splice(0)) {
+    if (e.t === "lane") { if (UI.tab === "lanes") floater("lane" + e.lane, "+" + fmt(e.gold), "var(--gold)"); Audio_.play("gold", 250); }
+    else if (e.t === "kill") { if (UI.tab === "battle") floater("battle", "+" + fmt(e.gold), "var(--gold)"); Audio_.play("kill", 200); }
+    else if (e.t === "gold") floater("top", "+" + fmt(e.gold), "var(--gold)");
+    else if (e.t === "cast") Audio_.play("cast", 150);
+    else if (e.t === "aegis") showBanner(tr("aegis_gained"));
+    else if (e.t === "ancient") showBanner(tr("ancient_down"));
+  }
+}
+
+// ---------------------------------------------------------------- ads (stub)
+function showAd(rewarded, onDone) {
+  if (UI.ad) return; UI.ad = { rewarded, left: rewarded ? 5 : 3 }; render();
+  const iv = setInterval(() => { UI.ad.left--; if (UI.ad.left <= 0) { clearInterval(iv); UI.ad = null; onDone && onDone(); } render(); }, 1000);
+}
+
+// ---------------------------------------------------------------- input
+const ACTIONS = {
+  tab: id => { UI.tab = id; $screen.scrollTop = 0; }, settings: () => { UI.settings = true; UI.confirmReset = false; },
+  lane: i => E.upgradeLane(+i), lvl: i => E.levelUp(+i), hire: i => E.hire(+i), cast: i => E.cast(+i), buy: id => E.buyItem(id),
+  equip: i => { UI.equipFor = +i; }, unequip: (i, j) => E.unequip(+i, +j), equipclose: () => { UI.equipFor = null; },
+  equipitem: id => { E.equip(UI.equipFor, id); const s = E.s.heroes[UI.equipFor]; if (!s.items.includes(null) || !E.s.inventory.length) UI.equipFor = null; return true; },
+  tap: () => { const d = E.tap(); floater("battle", "-" + fmt(d), "var(--red-hi)"); return true; },
+  talent: id => E.buyTalent(id),
+  rebirth: () => { UI.confirmRebirth = true; }, rebirthno: () => { UI.confirmRebirth = false; },
+  rebirthyes: () => { UI.confirmRebirth = false; const g = E.rebirth(); if (g > 0) { showBanner("+" + g + " MMR"); saveNow(); } },
+  adx2: () => showAd(true, () => E.goldX2()),
+  adfarm: () => { if (E.farmReady(Date.now())) showAd(true, () => { const r = E.claimFarm(Date.now()); if (r) showToast(tr("farm_reward", fmt(r.gold), r.kills)); }); },
+  offok: () => { UI.offline = null; }, offdouble: () => { const r = UI.offline; UI.offline = null; showAd(true, () => E.grantGold(r.gold)); },
+  closesettings: () => { UI.settings = false; }, lang: l => { E.s.settings.language = l; saveNow(); },
+  sound: () => { E.s.settings.sound = !E.s.settings.sound; }, music: () => { E.s.settings.music = !E.s.settings.music; Audio_.music(E.s.settings.music); },
+  noads: () => { E.s.settings.noAds = true; saveNow(); }, save: () => { saveNow(); showToast(tr("saved")); },
+  reset: () => { UI.confirmReset = true; }, resetno: () => { UI.confirmReset = false; },
+  resetyes: () => { const st = E.s.settings; E.s = newState(); E.s.settings = st; E.log = []; E.events = []; UI.settings = false; UI.confirmReset = false; saveNow(); },
+  "test-offline": () => { UI.settings = false; E.s.lastSaveMillis = Date.now() - 2 * 3600 * 1000; const r = E.applyOffline(Date.now()); if (r) UI.offline = r; saveNow(); },
+  "test-gold": () => { E.grantGold(Math.max(1000, E.gps() * 100)); return true; },
+  tipclose: () => { UI.tooltip = null; },
+};
+let press = null, suppressClick = false;
+document.addEventListener("pointerdown", e => {
+  Audio_.ensure(); const t = e.target.closest("[data-tip]"); if (!t) return;
+  press = { el: t, x: e.clientX, y: e.clientY, timer: setTimeout(() => { suppressClick = true; showTip(t.dataset.tip); if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} }, 500) };
+});
+const cancelPress = () => { if (press) { clearTimeout(press.timer); press = null; } };
+document.addEventListener("pointerup", cancelPress); document.addEventListener("pointercancel", cancelPress);
+document.addEventListener("pointermove", e => { if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress(); });
+document.addEventListener("contextmenu", e => { if (e.target.closest("[data-tip]")) e.preventDefault(); });
+document.addEventListener("click", e => {
+  if (suppressClick) { suppressClick = false; e.preventDefault(); return; }
+  const el = e.target.closest("[data-act]"); if (!el || el.disabled) return;
+  const [name, ...args] = el.dataset.act.split(":");
+  if (name === "closesettings-bg") { if (e.target === el) { UI.settings = false; render(); } return; }
+  const fn = ACTIONS[name]; if (!fn) return;
+  const ok = fn(...args); if (ok !== false) Audio_.play("click", 30); drain(); render();
+});
+document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".card[data-act]")) { e.preventDefault(); e.target.click(); } });
+
+// ---------------------------------------------------------------- loops
+function frame() {
+  const since = (performance.now() - UI.lastTick) / 1000;
+  document.querySelectorAll("[data-bar]").forEach(el => {
+    const [k, i] = el.dataset.bar.split(":"); let f = 0;
+    if (k === "lane") { const l = E.s.lanes[+i]; f = (l.progress + since / E.waveInterval()) % 1; }
+    else if (k === "hp") { const b = E.s.battle; f = (b.enemyHp - E.teamDps() * since) / B.enemyHp(b.enemyIndex); }
+    else if (k === "cd") { const h = E.s.heroes[+i]; const m = E.abilityCd(h); f = m > 0 ? 1 - (h.cooldown - since) / m : 1; }
+    el.style.width = (Math.max(0, Math.min(1, f)) * 100).toFixed(2) + "%";
+  });
+  document.querySelectorAll("canvas[data-lane]").forEach(cv => drawLane(cv, (E.s.lanes[+cv.dataset.lane].progress + since / E.waveInterval()) % 1));
+  requestAnimationFrame(frame);
+}
+function drawLane(cv, p) {
+  const c = cv.getContext("2d"), w = cv.width, h = cv.height, mid = h / 2, u = h / 64; c.clearRect(0, 0, w, h);
+  c.fillStyle = "#2b2219"; c.fillRect(0, mid - 6 * u, w, 12 * u);
+  c.fillStyle = "#5dbb63"; c.fillRect(4 * u, mid - 14 * u, 12 * u, 28 * u); c.fillStyle = "#b8321f"; c.fillRect(w - 16 * u, mid - 14 * u, 12 * u, 28 * u);
+  const hx = w * 0.32, bob = Math.sin(performance.now() / 150) * 2 * u; c.fillStyle = "#e8b64c"; c.beginPath(); c.arc(hx, mid + bob, 9 * u, 0, 7); c.fill();
+  const front = w * (0.92 - 0.52 * p), alpha = p > 0.9 ? 1 - (p - 0.9) * 10 : 1;
+  if (p > 0.6) { c.strokeStyle = "rgba(232,182,76,.7)"; c.lineWidth = 2 * u; c.beginPath(); c.moveTo(hx, mid); c.lineTo(front, mid); c.stroke(); }
+  c.fillStyle = `rgba(255,90,61,${Math.max(0, Math.min(1, alpha))})`;
+  for (let k = 0; k < B.CREEPS_PER_WAVE; k++) { c.beginPath(); c.arc(front + k * 12 * u, mid + (k % 2 ? 5 : -5) * u, 5 * u, 0, 7); c.fill(); }
+}
+let acc = 0, lastReal = performance.now(), autosave = 0;
+function loop() {
+  const now = performance.now(); acc = Math.min(5, acc + (now - lastReal) / 1000); lastReal = now; let ticks = 0;
+  while (acc >= 0.1) { E.tick(0.1); acc -= 0.1; ticks++; }
+  if (ticks) {
+    UI.lastTick = performance.now(); drain(); autosave += ticks * 0.1;
+    if (autosave >= 15) { autosave = 0; saveNow(); }
+    if (E.s.secondsSinceInterstitial >= B.INTERSTITIAL_INTERVAL_SECONDS) {
+      if (E.s.settings.noAds) E.s.secondsSinceInterstitial = 0;
+      else if (!UI.ad && !UI.offline) { E.s.secondsSinceInterstitial = 0; showAd(false); }
+    }
+    render();
+  }
+}
+function resume() { const r = E.applyOffline(Date.now()); if (r && r.awaySeconds >= 60) UI.offline = r; lastReal = performance.now(); acc = 0; render(); }
+document.addEventListener("visibilitychange", () => { if (document.hidden) saveNow(); else resume(); });
+window.addEventListener("pagehide", saveNow);
+
+// ---------------------------------------------------------------- boot
+E.s = loadState() || newState(); E.normalize(); LANG = E.s.settings.language;
+resume();
+setInterval(loop, 100);
+requestAnimationFrame(frame);
+</script>

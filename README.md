@@ -50,6 +50,13 @@ bash scripts/smoke_test.sh app/build/outputs/apk/debug/app-debug.apk
 2. `assembleDebug`, with the APK uploaded as the **dota-idle-debug-apk** artifact;
 3. an Android 11 emulator smoke test (`scripts/smoke_test.sh`), with screenshots in the **smoke-test-screenshots** artifact.
 
+## Web build (test in the browser)
+
+`web/index.html` is a single file with no dependencies: a JS port of the same `core` (formulas, content, rules)
+with a browser UI. Open it locally or from any HTTPS host. The save lives in the browser's `localStorage`
+(autosave every 15 s and when the tab is hidden), and offline progress is counted when you come back to the tab.
+Settings → «Test tools» lets you simulate 2 h offline and add gold.
+
 ## Structure
 
 ```
