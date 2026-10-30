@@ -24,7 +24,8 @@ class Event:
     unknown: dict[str, list[str]] = field(default_factory=dict)
 
 
-def build_matcher(profile: Profile) -> Matcher:
+def build_matcher(profile: Profile, aliases: dict[str, str] | None = None) -> Matcher:
+    """aliases: другое написание фразы (как её слышит распознаватель) → фраза из профиля."""
     phrases: dict[str, Command | str] = {}
     for cmd in profile.commands:
         for p in cmd.phrases:
@@ -33,6 +34,8 @@ def build_matcher(profile: Profile) -> Matcher:
         phrases[p] = PAUSE
     for p in profile.resume_phrases:
         phrases[p] = RESUME
+    for alias, original in (aliases or {}).items():
+        phrases.setdefault(alias, phrases[original])
     return Matcher(phrases)
 
 
@@ -48,6 +51,7 @@ class VoiceEngine:
         self.device = device if device is not None else settings.device
         self.paused = False
         self._matcher = build_matcher(profile)
+        self._display: dict[str, str] = {}
         self._sender = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -84,6 +88,8 @@ class VoiceEngine:
             self._sender = self._sender or make_sender(self.dry_run)
             listener = VoiceListener(self.model_dir, self.profile.all_phrases(),
                                      self.device, self.settings.use_grammar)
+            self._matcher = build_matcher(self.profile, listener.aliases)
+            self._display = {normalize(a): o for a, o in listener.aliases.items()}
             mode = "по списку фраз" if listener.use_grammar else "свободное распознавание"
             self.on_event(Event("ready", mode, unknown=listener.unknown))
             for text in listener.listen(self._stop):
@@ -101,6 +107,7 @@ class VoiceEngine:
             return
         hold = self.settings.key_hold_ms / 1000
         for phrase, target in hits:
+            phrase = self._display.get(phrase, phrase)
             if target == PAUSE:
                 self.set_paused(True)
             elif target == RESUME:

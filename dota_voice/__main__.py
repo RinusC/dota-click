@@ -12,6 +12,7 @@ import sys
 from . import paths
 from .config import ConfigError, Profile, load_profiles, load_settings
 from .engine import Event, VoiceEngine
+from .matcher import normalize
 
 
 def print_commands(profile: Profile, unknown: dict[str, list[str]]) -> None:
@@ -66,11 +67,14 @@ def check(settings, profiles: dict[str, Profile]) -> int:
     model = load_model(model_dir)
     print(f"Модель: OK ({model_dir})")
     for profile in profiles.values():
-        unknown = {p: vocab_form(model, p)[1] for p in profile.all_phrases()}
-        unknown = {p: w for p, w in unknown.items() if w}
-        print(f"\n[{profile.name}] фраз: {len(profile.all_phrases())}, неизвестны модели: {len(unknown)}")
-        for phrase, words in unknown.items():
-            print(f"  «{phrase}» — {', '.join(words)}")
+        forms = {p: vocab_form(model, p) for p in profile.all_phrases()}
+        unknown = {p: w for p, (_, w) in forms.items() if w}
+        print(f"\n[{profile.name}] фраз: {len(forms)}, неизвестны модели: {len(unknown)}")
+        for phrase, (form, words) in forms.items():
+            if words:
+                print(f"  «{phrase}» — не знает: {', '.join(words)}")
+            elif normalize(form) != normalize(phrase):
+                print(f"  «{phrase}» — распознаётся как «{form}»")
     return 0
 
 

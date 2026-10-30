@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
+from .matcher import normalize
+
 MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"
 
 
@@ -46,11 +48,27 @@ def word_variants(word: str) -> list[str]:
     return list(dict.fromkeys(variants))
 
 
+def _known(model, word: str) -> str | None:
+    return next((v for v in word_variants(word) if model.vosk_model_find_word(v) != -1), None)
+
+
+def split_word(model, word: str) -> str | None:
+    """Незнакомое слово как два знакомых, звучащих так же: «ульта» → «ульт а».
+
+    Распознаватель услышит «ульт а», а программа поймёт это как «ульта».
+    """
+    for cut in range(len(word) - 1, 2, -1):
+        head, tail = _known(model, word[:cut]), _known(model, word[cut:])
+        if head and tail:
+            return f"{head} {tail}"
+    return None
+
+
 def vocab_form(model, phrase: str) -> tuple[str | None, list[str]]:
     """Фраза в написании словаря модели и список слов, которых в словаре нет."""
     words, missing = [], []
     for word in phrase.lower().split():
-        form = next((v for v in word_variants(word) if model.vosk_model_find_word(v) != -1), None)
+        form = _known(model, word) or split_word(model, word)
         if form is None:
             missing.append(word)
         else:
@@ -102,10 +120,14 @@ class VoiceListener:
 
         self.grammar: list[str] = []
         self.unknown: dict[str, list[str]] = {}
+        # Как фраза будет звучать для распознавателя, если её пришлось записать иначе.
+        self.aliases: dict[str, str] = {}
         for phrase in phrases:
             form, missing = vocab_form(self.model, phrase)
             if form:
                 self.grammar.append(form)
+                if normalize(form) != normalize(phrase):
+                    self.aliases[form] = phrase
             else:
                 self.unknown[phrase] = missing
         self.use_grammar = use_grammar and bool(self.grammar)

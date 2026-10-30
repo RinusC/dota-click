@@ -13,7 +13,7 @@ from dota_voice.config import ConfigError, load_profiles, load_settings, parse_p
 from dota_voice.engine import PAUSE, Event, VoiceEngine, build_matcher
 from dota_voice.keys import parse_combo
 from dota_voice.matcher import Matcher, normalize
-from dota_voice.recognizer import download_model, vocab_form, word_variants
+from dota_voice.recognizer import download_model, split_word, vocab_form, word_variants
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -139,6 +139,13 @@ class RecognizerTest(unittest.TestCase):
         self.assertEqual(vocab_form(model, "Четвертый навык"), ("четвёртый навык", []))
         self.assertEqual(vocab_form(model, "первый скилл"), (None, ["скилл"]))
 
+    def test_unknown_word_is_split_into_known_ones(self):
+        model = FakeModel({"ульт", "а", "у", "ультимейт", "прокачать"})
+        self.assertEqual(split_word(model, "ульта"), "ульт а")
+        self.assertEqual(vocab_form(model, "прокачать ульту"), ("прокачать ульт у", []))
+        self.assertEqual(vocab_form(model, "ультимейта"), ("ультимейт а", []))
+        self.assertIsNone(split_word(model, "парирование"))
+
     def test_download_model_unpacks_into_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / "m.zip"
@@ -154,7 +161,7 @@ class RecognizerTest(unittest.TestCase):
 class EngineTest(unittest.TestCase):
     """Полный цикл с поддельными микрофоном и распознавателем."""
 
-    def run_engine(self, profile, utterances, vocab_missing=()):
+    def run_engine(self, profile, utterances, vocab_missing=(), vocab_extra=()):
         created = {}
 
         class Recognizer:
@@ -179,7 +186,7 @@ class EngineTest(unittest.TestCase):
             def __exit__(self, *a):
                 return False
 
-        words = {w for p in profile.all_phrases() for w in p.split()} - set(vocab_missing)
+        words = {w for p in profile.all_phrases() for w in p.split()} - set(vocab_missing) | set(vocab_extra)
         vosk = types.SimpleNamespace(SetLogLevel=lambda level: None, KaldiRecognizer=Recognizer,
                                      Model=lambda path: FakeModel(words))
         sd = types.SimpleNamespace(query_devices=lambda dev, kind: {"default_samplerate": 44100.0},
@@ -226,6 +233,16 @@ class EngineTest(unittest.TestCase):
         profile = default_profiles()["deadlock"]
         pressed, _, _ = self.run_engine(profile, ["ульта", "парирование", "два", "конец"])
         self.assertEqual(pressed, [((), "4"), ((), "f"), ((), "x")])
+
+    def test_split_phrase_is_understood_as_original(self):
+        profile = default_profiles()["dota2"]
+        pressed, events, created = self.run_engine(
+            profile, ["ульт а", "прокачать ульт у", "конец"],
+            vocab_missing={"ульта", "ульту"}, vocab_extra={"а", "у"})
+        self.assertIn("ульт а", created["grammar"])
+        self.assertEqual(pressed, [((), "r"), (("ctrl",), "r")])
+        self.assertEqual([e.text for e in events if e.kind == "command"], ["ульта", "прокачать ульту"])
+        self.assertNotIn("ульта", events[0].unknown)
 
     def test_missing_model_is_reported_as_error(self):
         events = []
