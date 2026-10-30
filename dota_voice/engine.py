@@ -7,10 +7,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from .config import Command, Profile, Settings
-from .keys import active_window_title, make_sender
+from .keys import KeyBlocker, active_window_title, make_sender
 from .matcher import Matcher, normalize
 from .recognizer import Hypothesis, VoiceListener
 
@@ -21,7 +21,8 @@ STABLE_SECONDS = 0.15  # сколько промежуточная гипоте�
 @dataclass
 class Event:
     """Что произошло. kind: ready, partial (что слышно прямо сейчас), command,
-    unrecognized, paused, resumed, skipped (пауза или окно игры не активно), error, stopped."""
+    unrecognized, paused, resumed, skipped (пауза, команда отключена или окно игры не активно),
+    warning, error, stopped."""
     kind: str
     text: str = ""
     command: Command | None = None
@@ -57,7 +58,10 @@ class VoiceEngine:
 
     def __init__(self, settings: Settings, profile: Profile, model_dir: Path,
                  on_event: Callable[[Event], None], dry_run: bool = False,
-                 device: str | int | None = None) -> None:
+                 device: str | int | None = None, disabled: Iterable[str] = (),
+                 block_keys: bool = False) -> None:
+        """disabled — названия отключённых команд; block_keys — пока программа слушает,
+        не пропускать с клавиатуры клавиши включённых команд (только Windows)."""
         self.settings = settings
         self.profile = profile
         self.model_dir = model_dir
@@ -65,6 +69,9 @@ class VoiceEngine:
         self.dry_run = dry_run
         self.device = device if device is not None else settings.device
         self.paused = False
+        self.block_keys = block_keys and not dry_run
+        self._blocker: KeyBlocker | None = None
+        self.set_disabled(disabled)
         self._matcher = build_matcher(profile)
         self._display: dict[str, str] = {}
         self._sender = None
@@ -96,6 +103,33 @@ class VoiceEngine:
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
+    def set_disabled(self, names: Iterable[str]) -> None:
+        """Какие команды отключены галочкой (можно менять на ходу)."""
+        self.disabled = frozenset(names)
+        enabled = [c for c in self.profile.commands if c.name not in self.disabled]
+        self._plain_keys = frozenset(c.key for c in enabled if not c.mods)
+        self._combos = frozenset((c.key, frozenset(c.mods)) for c in enabled if c.mods)
+
+    @property
+    def blocked_keys(self) -> list[str]:
+        """Что заблокировано, для показа: «q», «ctrl+r»…"""
+        combos = ["+".join([*sorted(mods), key]) for key, mods in self._combos if key not in self._plain_keys]
+        return sorted(self._plain_keys) + sorted(combos)
+
+    @property
+    def keys_blocked(self) -> bool:
+        """Блокировка клавиатуры включена и работает."""
+        return self._blocker is not None
+
+    def should_block(self, key: str, mods: frozenset[str] = frozenset()) -> bool:
+        """Глушить ли сейчас эту клавишу на физической клавиатуре.
+
+        Клавиша голосовой команды глушится с любыми модификаторами (Shift+Q — тоже Q);
+        клавиша, которая есть только в сочетании (Ctrl+R), — только в этом сочетании.
+        """
+        voice_key = key in self._plain_keys or (key, mods) in self._combos
+        return voice_key and not self.paused and not self._stop.is_set() and self._game_window_active()
+
     def set_paused(self, paused: bool) -> None:
         if paused != self.paused:
             self.paused = paused
@@ -113,6 +147,7 @@ class VoiceEngine:
             self._matcher = build_matcher(self.profile, listener.aliases)
             self._display = {normalize(a): o for a, o in listener.aliases.items()}
             self.start_key_worker()
+            self._start_blocker()
             mode = "по списку фраз" if listener.use_grammar else "свободное распознавание"
             if self.settings.fast_reaction:
                 mode += ", быстрая реакция"
@@ -123,6 +158,9 @@ class VoiceEngine:
         except Exception as e:  # noqa: BLE001 — любую ошибку показываем пользователю
             self.on_event(Event("error", str(e) or type(e).__name__))
         finally:
+            if self._blocker:
+                self._blocker.stop()
+                self._blocker = None
             self.stop_key_worker()
             self.on_event(Event("stopped"))
 
@@ -167,10 +205,22 @@ class VoiceEngine:
             self.set_paused(True)
         elif target == RESUME:
             self.set_paused(False)
+        elif target.name in self.disabled:
+            self.on_event(Event("skipped", f"«{phrase}» — команда «{target.name}» отключена", target))
         elif self.paused:
             self.on_event(Event("skipped", f"«{phrase}» — голосовые команды на паузе", target))
         else:
             self._keys.put((phrase, target))
+
+    def _start_blocker(self) -> None:
+        if not self.block_keys:
+            return
+        try:
+            self._blocker = KeyBlocker(self.should_block)
+            self._blocker.start()
+        except OSError as e:
+            self._blocker = None
+            self.on_event(Event("warning", f"Клавиши не заблокированы: {e}"))
 
     # --- очередь нажатий ---
 
@@ -206,7 +256,11 @@ class VoiceEngine:
                 time.sleep(gap)
 
     def _game_focused(self) -> bool:
-        if not self.settings.only_when_game_focused or self.dry_run:
+        """Можно ли нажимать клавишу (в тестовом режиме — всегда)."""
+        return self.dry_run or self._game_window_active()
+
+    def _game_window_active(self) -> bool:
+        if not self.settings.only_when_game_focused:
             return True
         title = active_window_title()
         return title is None or self.profile.window_title.lower() in title.lower()

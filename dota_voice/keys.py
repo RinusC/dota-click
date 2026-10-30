@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
+from typing import Callable
 
 MODIFIERS = ("ctrl", "shift", "alt")
 
@@ -174,3 +176,118 @@ def active_window_title() -> str | None:
     buf = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buf, length + 1)
     return buf.value
+
+
+# Скан-код (и признак «серой» клавиши) → имя клавиши.
+_BY_SCANCODE = {(code, name in EXTENDED): name for name, code in SCANCODES.items()}
+
+
+class KeyBlocker:
+    """Не пропускает с физической клавиатуры клавиши, которыми сейчас управляет голос.
+
+    Это обычный системный перехват клавиатуры Windows (так работают программы
+    переназначения клавиш и push-to-talk), в игру он не вмешивается. Нажатия самой
+    программы (SendInput) Windows помечает как программные — они проходят.
+
+    should_block(имя клавиши, зажатые модификаторы) решает, глушить ли клавишу прямо сейчас.
+    """
+
+    def __init__(self, should_block: Callable[[str, frozenset[str]], bool]) -> None:
+        self._should_block = should_block
+        self._swallowed: set[tuple[int, bool]] = set()  # заглушённые нажатия, ждём их отпускания
+        self._thread: threading.Thread | None = None
+        self._thread_id = 0
+        self._error: Exception | None = None
+
+    def decide(self, scancode: int, extended: bool, down: bool, injected: bool,
+               mods: frozenset[str] = frozenset()) -> bool:
+        """True — событие клавиатуры надо проглотить."""
+        if injected:
+            return False
+        code = (scancode, extended)
+        if not down:
+            # Отпускание глушим только у тех клавиш, чьё нажатие заглушили,
+            # иначе игра «залипнет» на нажатой клавише.
+            if code in self._swallowed:
+                self._swallowed.discard(code)
+                return True
+            return False
+        name = _BY_SCANCODE.get(code)
+        if name and self._should_block(name, mods):
+            self._swallowed.add(code)
+            return True
+        return False
+
+    def start(self) -> None:
+        if sys.platform != "win32":
+            raise OSError("блокировка клавиатуры работает только в Windows")
+        ready = threading.Event()
+        self._thread = threading.Thread(target=self._loop, args=(ready,), daemon=True)
+        self._thread.start()
+        ready.wait(5)
+        if self._error:
+            raise self._error
+
+    def stop(self) -> None:
+        if self._thread and self._thread_id:
+            import ctypes
+            WM_QUIT = 0x0012
+            ctypes.windll.user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
+            self._thread.join(timeout=2)
+        self._thread = None
+        self._thread_id = 0
+
+    def _loop(self, ready: threading.Event) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        LRESULT = ctypes.c_ssize_t
+        HOOKPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+
+        class KBDLLHOOKSTRUCT(ctypes.Structure):
+            _fields_ = [("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD),
+                        ("flags", wintypes.DWORD), ("time", wintypes.DWORD),
+                        ("dwExtraInfo", ctypes.c_size_t)]
+
+        user32.SetWindowsHookExW.argtypes = (ctypes.c_int, HOOKPROC, wintypes.HINSTANCE, wintypes.DWORD)
+        user32.SetWindowsHookExW.restype = wintypes.HHOOK
+        user32.CallNextHookEx.argtypes = (wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+        user32.CallNextHookEx.restype = LRESULT
+        user32.UnhookWindowsHookEx.argtypes = (wintypes.HHOOK,)
+        user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+        user32.GetMessageW.argtypes = (ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT)
+        kernel32.GetModuleHandleW.argtypes = (wintypes.LPCWSTR,)
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+
+        WH_KEYBOARD_LL, HC_ACTION = 13, 0
+        WM_KEYDOWN, WM_SYSKEYDOWN = 0x0100, 0x0104
+        LLKHF_EXTENDED, LLKHF_INJECTED = 0x01, 0x10
+        MOD_VKS = (("ctrl", 0x11), ("shift", 0x10), ("alt", 0x12))
+
+        def proc(code, wparam, lparam):
+            if code == HC_ACTION:
+                try:
+                    k = ctypes.cast(lparam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                    mods = frozenset(m for m, vk in MOD_VKS if user32.GetAsyncKeyState(vk) & 0x8000)
+                    if self.decide(k.scanCode, bool(k.flags & LLKHF_EXTENDED),
+                                   wparam in (WM_KEYDOWN, WM_SYSKEYDOWN), bool(k.flags & LLKHF_INJECTED), mods):
+                        return 1
+                except Exception:  # noqa: BLE001 — ошибка в перехвате не должна ломать клавиатуру
+                    pass
+            return user32.CallNextHookEx(None, code, wparam, lparam)
+
+        self._proc = HOOKPROC(proc)  # ссылка нужна, иначе сборщик мусора удалит обработчик
+        hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._proc, kernel32.GetModuleHandleW(None), 0)
+        if not hook:
+            self._error = OSError(ctypes.get_last_error(), "не удалось включить блокировку клавиатуры")
+            ready.set()
+            return
+        self._thread_id = kernel32.GetCurrentThreadId()
+        ready.set()
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            pass
+        user32.UnhookWindowsHookEx(hook)

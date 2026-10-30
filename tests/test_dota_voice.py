@@ -14,7 +14,7 @@ from dota_voice import paths
 from dota_voice.config import ConfigError, load_profiles, load_settings, parse_profile, parse_settings
 from dota_voice.engine import PAUSE, Event, VoiceEngine, build_matcher
 from dota_voice.recognizer import Hypothesis
-from dota_voice.keys import parse_combo
+from dota_voice.keys import KeyBlocker, parse_combo
 from dota_voice.matcher import Matcher, normalize
 from dota_voice.recognizer import SilenceMeter, download_model, split_word, vocab_form, word_variants
 
@@ -38,6 +38,49 @@ class KeysTest(unittest.TestCase):
         for bad in ["q+w", "ctrl+ctrl+q", "", "ctrl+", "щ", "mouse1"]:
             with self.assertRaises(ValueError, msg=bad):
                 parse_combo(bad)
+
+
+class KeyBlockerTest(unittest.TestCase):
+    Q, R, SPACE = 0x10, 0x13, 0x39
+
+    def test_blocks_physical_presses_of_voice_keys(self):
+        b = KeyBlocker(lambda key, mods: key in {"q", "space"})
+        self.assertTrue(b.decide(self.Q, False, True, False))
+        self.assertTrue(b.decide(self.Q, False, False, False), "отпускание заглушённой клавиши тоже глушим")
+        self.assertTrue(b.decide(self.SPACE, False, True, False))
+        self.assertFalse(b.decide(self.R, False, True, False), "клавиши без голосовой команды работают")
+
+    def test_program_own_presses_pass(self):
+        b = KeyBlocker(lambda key, mods: True)
+        self.assertFalse(b.decide(self.Q, False, True, True))
+        self.assertFalse(b.decide(self.Q, False, False, True))
+
+    def test_key_pressed_before_blocking_is_released_normally(self):
+        blocking = {"on": False}
+        b = KeyBlocker(lambda key, mods: blocking["on"])
+        self.assertFalse(b.decide(self.Q, False, True, False))
+        blocking["on"] = True
+        self.assertFalse(b.decide(self.Q, False, False, False), "иначе игра «залипнет» на нажатой Q")
+
+    def test_key_blocked_on_press_stays_blocked_on_release(self):
+        blocking = {"on": True}
+        b = KeyBlocker(lambda key, mods: blocking["on"])
+        self.assertTrue(b.decide(self.Q, False, True, False))
+        blocking["on"] = False
+        self.assertTrue(b.decide(self.Q, False, False, False))
+
+    def test_extended_flag_distinguishes_keys(self):
+        b = KeyBlocker(lambda key, mods: key == "up")
+        self.assertTrue(b.decide(0x48, True, True, False))
+        self.assertFalse(b.decide(0x48, False, True, False), "8 на цифровом блоке — не стрелка")
+
+    @unittest.skipUnless(sys.platform == "win32", "системный перехват клавиатуры есть только в Windows")
+    def test_windows_hook_installs_and_removes(self):
+        b = KeyBlocker(lambda key, mods: False)
+        b.start()
+        self.assertTrue(b._thread.is_alive())
+        b.stop()
+        self.assertIsNone(b._thread)
 
 
 class MatcherTest(unittest.TestCase):
@@ -367,6 +410,33 @@ class QuickReactionTest(unittest.TestCase):
         self.assertEqual(self.queued(e), [])
         e.handle(Hypothesis(True, "стоп один", 1.5))
         self.assertEqual(self.queued(e), ["s", "z"])
+
+    def test_disabled_command_is_not_pressed(self):
+        e = self.engine()
+        e.set_disabled({"Предмет 2"})
+        e.handle(Hypothesis(True, "один два три", 1.0))
+        self.assertEqual(self.queued(e), ["z", "c"])
+        e.set_disabled(set())
+        e.handle(Hypothesis(True, "два", 2.0))
+        self.assertEqual(self.queued(e), ["z", "c", "x"])
+
+    def test_only_enabled_voice_keys_are_blocked(self):
+        e = self.engine()
+        e.set_disabled({"Ульта"})
+        self.assertTrue(e.should_block("q"))
+        self.assertTrue(e.should_block("q", frozenset({"shift"})), "Shift+Q — тоже Q")
+        self.assertFalse(e.should_block("r"), "отключённая команда — клавиша работает с клавиатуры")
+        self.assertTrue(e.should_block("r", frozenset({"ctrl"})), "Ctrl+R («прокачать ульту») включена")
+        self.assertIn("ctrl+r", e.blocked_keys)
+        self.assertNotIn("r", e.blocked_keys)
+        self.assertFalse(e.should_block("g"), "клавиша без команды")
+        e.set_paused(True)
+        self.assertFalse(e.should_block("q"), "на паузе клавиатура работает как обычно")
+        e.set_paused(False)
+        with unittest.mock.patch("dota_voice.engine.active_window_title", lambda: "Discord"):
+            self.assertFalse(e.should_block("q"), "в других окнах клавиатура работает как обычно")
+        with unittest.mock.patch("dota_voice.engine.active_window_title", lambda: "Dota 2"):
+            self.assertTrue(e.should_block("q"))
 
     def test_key_queue_presses_in_order_with_gap(self):
         e = self.engine(key_gap_ms=30, key_hold_ms=10)

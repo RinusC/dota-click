@@ -47,6 +47,8 @@ def console_printer(profile: Profile, dry_run: bool):
             print("⏸  Пауза. Скажите «голос продолжить», чтобы вернуть управление.")
         elif e.kind == "resumed":
             print("▶  Снова слушаю команды.")
+        elif e.kind == "warning":
+            print(f"Внимание: {e.text}")
         elif e.kind == "error":
             print(f"Ошибка: {e.text}", file=sys.stderr)
     return on_event
@@ -88,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--download-model", action="store_true",
                         help="скачать русскую модель распознавания (~45 МБ) и выйти")
     parser.add_argument("--check", action="store_true", help="проверить установку и словарь и выйти")
+    parser.add_argument("--block-keys", action="store_true",
+                        help="консоль: не пропускать с клавиатуры клавиши команд (Windows)")
     args = parser.parse_args(argv)
 
     paths.ensure_user_files()
@@ -122,7 +126,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Нет профиля «{args.game}». Есть: {', '.join(profiles) or 'ничего'}", file=sys.stderr)
             return 2
         engine = VoiceEngine(settings, profile, settings.model_dir(paths.app_dir()),
-                             console_printer(profile, args.dry_run), args.dry_run)
+                             console_printer(profile, args.dry_run), args.dry_run,
+                             block_keys=args.block_keys)
         engine.run()
         return 1
     except KeyboardInterrupt:

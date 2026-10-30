@@ -140,8 +140,11 @@ class App:
                                     state="disabled", width=12)
         self.pause_btn.pack(side="left", padx=8)
         self.dry_run = tk.BooleanVar(value=bool(self.state.get("dry_run", False)))
-        ttk.Checkbutton(row, text="Тест: только показывать, клавиши не нажимать",
-                        variable=self.dry_run, command=self.on_dry_run_changed).pack(side="left", padx=8)
+        ttk.Checkbutton(row, text="Тест (клавиши не нажимаются)",
+                        variable=self.dry_run, command=self.on_option_changed).pack(side="left", padx=8)
+        self.block_keys = tk.BooleanVar(value=bool(self.state.get("block_keys", True)))
+        ttk.Checkbutton(row, text="Блокировать клавиши команд",
+                        variable=self.block_keys, command=self.on_option_changed).pack(side="left", padx=8)
 
         hero = tk.Frame(self.root, bg=PANEL)
         hero.pack(fill="x", padx=16, pady=(8, 8))
@@ -160,12 +163,16 @@ class App:
         left = ttk.Frame(body, style="Panel.TFrame")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         ttk.Label(left, text="КОМАНДЫ", style="Panel.TLabel", padding=(10, 8)).pack(anchor="w")
-        self.tree = ttk.Treeview(left, columns=("key", "name", "phrases"), show="headings")
-        for col, title, width, stretch in [("key", "Клавиша", 70, False), ("name", "Действие", 185, False),
-                                           ("phrases", "Что сказать", 260, True)]:
-            self.tree.heading(col, text=title, anchor="w")
-            self.tree.column(col, width=width, stretch=stretch, anchor="w")
+        self.tree = ttk.Treeview(left, columns=("on", "key", "name", "phrases"), show="headings")
+        for col, title, width, stretch in [("on", "Вкл", 44, False), ("key", "Клавиша", 70, False),
+                                           ("name", "Действие", 180, False), ("phrases", "Что сказать", 240, True)]:
+            self.tree.heading(col, text=title, anchor="center" if col == "on" else "w")
+            self.tree.column(col, width=width, stretch=stretch, anchor="center" if col == "on" else "w")
         self.tree.tag_configure("control", foreground=MUTED)
+        self.tree.tag_configure("off", foreground="#5d636e")
+        # Галочка «Вкл»: клик по ней или пробел на выбранной строке.
+        self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
+        self.tree.bind("<space>", lambda e: [self.toggle_command(i) for i in self.tree.selection()])
         scroll = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y", pady=(0, 1))
@@ -248,20 +255,47 @@ class App:
         if not profile:
             return
         unknown = unknown or {}
-        for cmd in profile.commands:
+        disabled = self.disabled_commands()
+        for i, cmd in enumerate(profile.commands):
             heard = [p for p in cmd.phrases if p not in unknown] or ["— (нет распознаваемых фраз)"]
-            self.tree.insert("", "end", values=(cmd.key_text.upper(), cmd.name, ", ".join(heard)))
+            off = cmd.name in disabled
+            self.tree.insert("", "end", iid=f"cmd{i}", tags=("off",) if off else (),
+                             values=("☐" if off else "☑", cmd.key_text.upper(), cmd.name, ", ".join(heard)))
         if profile.pause_phrases:
             self.tree.insert("", "end", tags=("control",),
-                             values=("—", "Пауза голоса", ", ".join(profile.pause_phrases)))
+                             values=("", "—", "Пауза голоса", ", ".join(profile.pause_phrases)))
         if profile.resume_phrases:
             self.tree.insert("", "end", tags=("control",),
-                             values=("—", "Продолжить", ", ".join(profile.resume_phrases)))
+                             values=("", "—", "Продолжить", ", ".join(profile.resume_phrases)))
+
+    def disabled_commands(self) -> set[str]:
+        """Названия команд текущей игры, отключённых галочкой."""
+        return set(self.state.get("disabled", {}).get(self.current_profile_id() or "", []))
+
+    def on_tree_click(self, event) -> None:
+        row = self.tree.identify_row(event.y)
+        if row and self.tree.identify_column(event.x) == "#1":
+            self.toggle_command(row)
+
+    def toggle_command(self, row: str) -> None:
+        profile = self.current_profile()
+        if not profile or not row.startswith("cmd"):
+            return
+        cmd = profile.commands[int(row[3:])]
+        disabled = self.disabled_commands() ^ {cmd.name}
+        self.state.setdefault("disabled", {})[profile.id] = sorted(disabled)
+        paths.save_state(self.state)
+        off = cmd.name in disabled
+        self.tree.set(row, "on", "☐" if off else "☑")
+        self.tree.item(row, tags=("off",) if off else ())
+        if self.engine:
+            self.engine.set_disabled(disabled)
+        self.write(f"{cmd.key_text.upper()} «{cmd.name}» — {'отключена' if off else 'включена'}.", "muted")
 
     def _remember(self) -> None:
         self.state.update(game=self.current_profile_id() or "",
                           device_name=self.mic_box.get() if self.mic_box.get() in self.devices else "",
-                          dry_run=self.dry_run.get())
+                          dry_run=self.dry_run.get(), block_keys=self.block_keys.get())
         paths.save_state(self.state)
 
     # ---------- реакции на кнопки ----------
@@ -277,7 +311,7 @@ class App:
         self._remember()
         self._restart_if_running()
 
-    def on_dry_run_changed(self) -> None:
+    def on_option_changed(self) -> None:
         self._remember()
         self._restart_if_running()
 
@@ -304,7 +338,8 @@ class App:
         token = object()
         self.engine = VoiceEngine(self.settings, profile, self._model_dir(),
                                   lambda e: self.events.put((token, e)),
-                                  dry_run=self.dry_run.get(), device=device)
+                                  dry_run=self.dry_run.get(), device=device,
+                                  disabled=self.disabled_commands(), block_keys=self.block_keys.get())
         self.engine_token = token
         self.engine.start()
         self.start_btn.configure(text="■  Стоп")
@@ -364,6 +399,10 @@ class App:
             self.set_status("Слушаю", GREEN)
             test = " Тестовый режим: клавиши не нажимаются." if self.engine.dry_run else ""
             self.write(f"Слушаю микрофон — {self.engine.profile.name}, {e.text}.{test}", "ok")
+            if self.engine.keys_blocked:
+                keys = ", ".join(k.upper() for k in self.engine.blocked_keys)
+                self.write(f"Клавиши {keys} на клавиатуре не работают, пока активно окно "
+                           f"{self.engine.profile.name} и голос не на паузе.", "muted")
             if e.unknown:
                 words = sorted({w for ws in e.unknown.values() for w in ws})
                 self.write(f"Модель не знает слов: {', '.join(words)}. Фразы с ними не сработают — "
@@ -374,6 +413,8 @@ class App:
             self.write(f"«{e.text}» → {e.command.key_text.upper()}  ({e.command.name})")
         elif e.kind == "partial":
             self.heard_label.configure(text=f"слышу: {e.text}" if e.text else " ")
+        elif e.kind == "warning":
+            self.write(e.text, "warn")
         elif e.kind == "unrecognized":
             self.write(f"? «{e.text}»", "muted")
         elif e.kind == "skipped":
