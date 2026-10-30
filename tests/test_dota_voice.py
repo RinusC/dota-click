@@ -420,6 +420,7 @@ class QuickReactionTest(unittest.TestCase):
         e.handle(Hypothesis(True, "два", 2.0))
         self.assertEqual(self.queued(e), ["z", "c", "x"])
 
+    @unittest.mock.patch("dota_voice.engine.active_window_title", lambda: "Dota 2")
     def test_only_enabled_voice_keys_are_blocked(self):
         e = self.engine()
         e.set_disabled({"Ульта"})
