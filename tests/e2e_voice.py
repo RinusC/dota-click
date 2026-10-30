@@ -101,7 +101,7 @@ def run(profile, settings, audio: array, rate: int, debug: bool = False):
         raise RuntimeError(errors)
     if debug:
         for h in heard[:80]:
-            print(f"    {h.time:5.2f} {'FINAL' if h.final else 'part '} {h.text!r} {h.words}")
+            print(f"    {h.time:5.2f} {'FINAL' if h.final else 'part '} {h.text!r} тишина {h.quiet:.2f}")
     return fired
 
 

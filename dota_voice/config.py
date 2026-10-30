@@ -27,7 +27,7 @@ class Settings:
     key_hold_ms: int = 40
     key_gap_ms: int = 30
     fast_reaction: bool = True
-    reaction_delay_ms: int = 120
+    reaction_delay_ms: int = 150
     use_grammar: bool = True
     show_unrecognized: bool = True
 

@@ -1,4 +1,5 @@
 import json
+from array import array
 import sys
 import tempfile
 import threading
@@ -15,7 +16,7 @@ from dota_voice.engine import PAUSE, Event, VoiceEngine, build_matcher
 from dota_voice.recognizer import Hypothesis
 from dota_voice.keys import parse_combo
 from dota_voice.matcher import Matcher, normalize
-from dota_voice.recognizer import download_model, split_word, vocab_form, word_variants
+from dota_voice.recognizer import SilenceMeter, download_model, split_word, vocab_form, word_variants
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -132,6 +133,17 @@ class FakeModel:
 
 
 class RecognizerTest(unittest.TestCase):
+    def test_silence_meter(self):
+        meter = SilenceMeter()
+        noise = array("h", [30, -25, 40, -35] * 200).tobytes()
+        voice = array("h", [3000, -2800, 2500, -3100] * 200).tobytes()
+        for _ in range(10):
+            meter.feed(noise, 0.05)
+        self.assertAlmostEqual(meter.quiet, 0.5)
+        self.assertEqual(meter.feed(voice, 0.05), 0.0)
+        meter.feed(noise, 0.05)
+        self.assertAlmostEqual(meter.feed(noise, 0.05), 0.1)
+
     def test_word_variants(self):
         self.assertIn("четвёртый", word_variants("четвертый"))
         self.assertIn("четвертый", word_variants("четвёртый"))
@@ -163,8 +175,8 @@ class RecognizerTest(unittest.TestCase):
 class EngineTest(unittest.TestCase):
     """Полный цикл с поддельными микрофоном и распознавателем.
 
-    script — что распознаватель выдаёт на каждую порцию звука (50 мс):
-    строка — законченная фраза, список (слово, конец) — промежуточный результат.
+    script — что распознаватель выдаёт на каждую порцию звука (50 мс, тишина):
+    строка — законченная фраза, список слов — промежуточный результат.
     """
 
     def run_engine(self, profile, script, expected_presses, vocab_missing=(), vocab_extra=(), settings=None):
@@ -178,9 +190,6 @@ class EngineTest(unittest.TestCase):
                 self.left = list(script)
                 self.current = None
 
-            def SetPartialWords(self, enabled):
-                created["partial_words"] = enabled
-
             def AcceptWaveform(self, data):
                 self.current = self.left.pop(0) if self.left else []
                 return isinstance(self.current, str)
@@ -189,9 +198,7 @@ class EngineTest(unittest.TestCase):
                 return json.dumps({"text": self.current})
 
             def PartialResult(self):
-                words = [{"word": w, "end": e, "start": 0, "conf": 1} for w, e in self.current]
-                return json.dumps({"partial": " ".join(w for w, _ in self.current), "partial_result": words},
-                                  ensure_ascii=False)
+                return json.dumps({"partial": " ".join(self.current)}, ensure_ascii=False)
 
         class Stream:
             def __init__(self, callback, samplerate, blocksize, **kw):
@@ -237,12 +244,10 @@ class EngineTest(unittest.TestCase):
 
     def test_partial_results_fire_before_phrase_ends(self):
         profile = default_profiles()["dota2"]
-        # «ульта» звучит 0.5 с, дальше слово не меняется; конец фразы распознаватель объявляет поздно.
-        script = [[("ульт", 0.3)], [("ульт", 0.45)], [("ульт", 0.5)], [("ульт", 0.5)], [("ульт", 0.5)],
-                  [("ульт", 0.5)], [("ульт", 0.5)], [], [], [], [], ""]
-        # Законченная фраза пустая — значит, клавиша нажата по промежуточным результатам.
+        # Распознаватель слышит «ульт», в микрофоне тишина; конец фразы он объявляет поздно,
+        # и законченная фраза пустая — значит, клавиша нажата по промежуточным результатам.
+        script = [["ульт"]] * 6 + [[], [], ""]
         events, created = self.run_engine(profile, script, [((), "r")])
-        self.assertTrue(created["partial_words"])
         self.assertEqual(created["rate"], 16000)
         self.assertEqual(created["blocksize"], 800)
         self.assertIn(("partial", "ульт"), [(e.kind, e.text) for e in events])
@@ -299,50 +304,53 @@ class QuickReactionTest(unittest.TestCase):
         return [cmd.key_text for _, cmd in list(engine._keys.queue)]
 
     @staticmethod
-    def partial(engine, t, *words):
-        engine.handle(Hypothesis(False, " ".join(w for w, _ in words), t, list(words)))
+    def partial(engine, t, text, quiet=0.0):
+        engine.handle(Hypothesis(False, text, t, quiet))
 
-    def test_fires_once_word_is_stable(self):
+    def test_fires_after_short_silence(self):
         e = self.engine()
-        self.partial(e, 0.55, ("один", 0.5))
-        self.partial(e, 0.60, ("один", 0.5))
+        self.partial(e, 0.55, "один")
+        self.partial(e, 0.60, "один", quiet=0.05)
         self.assertEqual(self.queued(e), [])
-        self.partial(e, 0.70, ("один", 0.5))
+        self.partial(e, 0.70, "один", quiet=0.15)
         self.assertEqual(self.queued(e), ["z"])
-        e.handle(Hypothesis(True, "один", 1.2))
+        e.handle(Hypothesis(True, "один", 1.2, quiet=0.6))
         self.assertEqual(self.queued(e), ["z"], "законченная фраза не должна нажать второй раз")
 
     def test_word_still_being_spoken_is_not_fired(self):
-        # Пока человек говорит «пятый скилл», распознаватель сначала слышит «пять».
+        # Пока человек говорит «пятый скилл», распознаватель сначала слышит «пять»,
+        # но звук не затихает — значит, слово ещё не закончено.
         e = self.engine()
-        self.partial(e, 0.45, ("пять", 0.40))
-        self.partial(e, 0.55, ("пять", 0.50))
-        self.partial(e, 0.65, ("пятый", 0.60))
-        self.partial(e, 0.95, ("пятый", 0.65), ("скилл", 0.90))
-        self.partial(e, 1.10, ("пятый", 0.65), ("скилл", 0.90))
+        self.partial(e, 0.45, "пять")
+        self.partial(e, 0.55, "пять", quiet=0.05)
+        self.partial(e, 0.65, "пятый")
+        self.partial(e, 0.95, "пятый скилл")
+        self.assertEqual(self.queued(e), [])
+        self.partial(e, 1.10, "пятый скилл", quiet=0.15)
         self.assertEqual(self.queued(e), ["f"])
 
     def test_two_phrases_in_one_breath_fire_in_order(self):
         e = self.engine()
-        self.partial(e, 0.45, ("один", 0.4))
-        self.partial(e, 0.60, ("один", 0.4))
-        self.partial(e, 0.85, ("один", 0.4), ("два", 0.8))
-        self.partial(e, 1.00, ("один", 0.4), ("два", 0.8))
+        self.partial(e, 0.45, "один")
+        self.partial(e, 0.55, "один два")
+        self.assertEqual(self.queued(e), [], "гипотеза «один» ещё слишком свежая")
+        self.partial(e, 0.65, "один два")
+        self.assertEqual(self.queued(e), ["z"], "за «один» уже звучит следующее слово")
+        self.partial(e, 0.90, "один два", quiet=0.2)
         self.assertEqual(self.queued(e), ["z", "x"])
         e.handle(Hypothesis(True, "один два", 1.5))
         self.assertEqual(self.queued(e), ["z", "x"])
 
     def test_final_result_fires_what_partials_missed(self):
         e = self.engine()
-        self.partial(e, 0.45, ("один", 0.4))
-        self.partial(e, 0.60, ("один", 0.4))
+        self.partial(e, 0.45, "один", quiet=0.2)
         e.handle(Hypothesis(True, "один два три", 1.5))
         self.assertEqual(self.queued(e), ["z", "x", "c"])
 
     def test_slow_mode_waits_for_final(self):
         e = self.engine(fast_reaction=False)
         for t in (0.5, 0.7, 0.9):
-            self.partial(e, t, ("один", 0.4))
+            self.partial(e, t, "один", quiet=t)
         self.assertEqual(self.queued(e), [])
         e.handle(Hypothesis(True, "один", 1.5))
         self.assertEqual(self.queued(e), ["z"])
@@ -352,7 +360,7 @@ class QuickReactionTest(unittest.TestCase):
                                  "command": [{"key": "s", "phrases": ["стоп"]}]}, "x")
         e = self.engine(profile)
         for t in (0.5, 0.7, 0.9):
-            self.partial(e, t, ("стоп", 0.4))
+            self.partial(e, t, "стоп", quiet=t)
         self.assertEqual(self.queued(e), [])
         e.handle(Hypothesis(True, "стоп", 1.5))
         self.assertEqual(self.queued(e), ["s"])

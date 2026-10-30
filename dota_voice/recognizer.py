@@ -9,7 +9,9 @@ import tempfile
 import threading
 import urllib.request
 import zipfile
-from dataclasses import dataclass, field
+import math
+from array import array
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
@@ -20,17 +22,39 @@ MODEL_RATE = 16000   # частота, на которой обучена мод
 CHUNK_SECONDS = 0.05  # порция звука: чем меньше, тем чаще обновляется промежуточный результат
 
 
+QUIET_LEVEL = 100     # громкость (RMS), ниже которой звук точно тишина
+
+
 @dataclass
 class Hypothesis:
     """Что распознаватель услышал к моменту time (секунды звука с начала прослушивания).
 
-    final=False — промежуточный результат, пока человек говорит; words — слова
-    с временем их конца. final=True — фраза закончена (распознаватель услышал паузу).
+    final=False — промежуточный результат, пока человек говорит;
+    final=True — фраза закончена (распознаватель услышал длинную паузу).
+    quiet — сколько секунд подряд в микрофоне тишина (0 — человек сейчас говорит).
     """
     final: bool
     text: str
     time: float
-    words: list[tuple[str, float]] = field(default_factory=list)
+    quiet: float = 0.0
+
+
+class SilenceMeter:
+    """Отличает речь от тишины по громкости, подстраиваясь под фоновый шум микрофона."""
+
+    def __init__(self) -> None:
+        self.floor: float | None = None
+        self.quiet = 0.0
+
+    def feed(self, data: bytes, seconds: float) -> float:
+        samples = array("h", data)
+        level = math.sqrt(sum(v * v for v in samples) / len(samples)) if samples else 0.0
+        if self.floor is None or level < self.floor:
+            self.floor = level if self.floor is None else (self.floor + level) / 2
+        else:
+            self.floor = self.floor * 0.995 + level * 0.005
+        self.quiet = self.quiet + seconds if level < max(self.floor * 2.5, QUIET_LEVEL) else 0.0
+        return self.quiet
 
 
 def download_model(target: Path, url: str = MODEL_URL,
@@ -171,9 +195,9 @@ class VoiceListener:
             audio.put(bytes(indata))
 
         rec = self._recognizer()
-        rec.SetPartialWords(True)
+        meter = SilenceMeter()
         samples = 0
-        last_partial = None
+        last_partial = ""
         with self._sd.RawInputStream(samplerate=self.sample_rate,
                                      blocksize=int(self.sample_rate * CHUNK_SECONDS),
                                      device=self.device, dtype="int16", channels=1,
@@ -183,14 +207,17 @@ class VoiceListener:
                     data = audio.get(timeout=0.2)
                 except queue.Empty:
                     continue
-                samples += len(data) // 2
+                count = len(data) // 2
+                samples += count
                 now = samples / self.sample_rate
+                quiet = meter.feed(data, count / self.sample_rate)
                 if rec.AcceptWaveform(data):
-                    last_partial = None
-                    yield Hypothesis(True, json.loads(rec.Result()).get("text", ""), now)
+                    last_partial = ""
+                    yield Hypothesis(True, json.loads(rec.Result()).get("text", ""), now, quiet)
                 else:
-                    partial = json.loads(rec.PartialResult())
-                    words = [(w["word"], w["end"]) for w in partial.get("partial_result", [])]
-                    if words or last_partial:
-                        last_partial = words
-                        yield Hypothesis(False, partial.get("partial", ""), now, words)
+                    # Обычный (не пословный) промежуточный результат: Vosk обновляет его
+                    # на каждой порции звука, а пословный — с запаздыванием.
+                    text = json.loads(rec.PartialResult()).get("partial", "")
+                    if text or last_partial:
+                        last_partial = text
+                        yield Hypothesis(False, text, now, quiet)

@@ -49,9 +49,9 @@ class VoiceEngine:
     «один два», сработают обе команды в том порядке, в каком сказаны,
     а распознавание при этом не ждёт, пока клавиша будет нажата и отпущена.
 
-    Быстрая реакция: команда срабатывает по промежуточному результату, как
-    только последнее слово фразы перестало меняться reaction_delay_ms, — не
-    дожидаясь, пока распознаватель решит, что человек замолчал.
+    Быстрая реакция: команда срабатывает по промежуточному результату, как только
+    после неё reaction_delay_ms тишины или уже звучит следующее слово, — не дожидаясь,
+    пока распознаватель сам решит, что фраза закончена (это ещё ~0,5–0,8 с).
     """
 
     def __init__(self, settings: Settings, profile: Profile, model_dir: Path,
@@ -74,7 +74,7 @@ class VoiceEngine:
         # Текущая (ещё не законченная) фраза: сколько команд из неё уже выполнено
         # и с какого момента держится неизменной каждая следующая.
         self._fired = 0
-        self._candidate: tuple[int, str, float] | None = None
+        self._candidate: tuple[int, str] | None = None
         self._candidate_since = 0.0
         self._last_partial = ""
 
@@ -133,16 +133,16 @@ class VoiceEngine:
             self.on_event(Event("partial", normalize(h.text)))
         if not self.settings.fast_reaction:
             return
-        # Выполняем по порядку все команды, которые уже «устоялись».
+        # Выполняем по порядку все команды, которые уже точно сказаны целиком:
+        # после них тишина или следующее слово (и гипотеза держится не меньше delay).
         delay = self.settings.reaction_delay_ms / 1000
-        hits = self._matcher.parse_words(h.words)
+        n_tokens, hits = self._matcher.parse_tokens(h.text)
         while self._fired < len(hits):
             phrase, target, end = hits[self._fired]
-            key = (self._fired, phrase, end)
-            if key != self._candidate:
-                self._candidate, self._candidate_since = key, h.time
-                return
-            if h.time - self._candidate_since < delay or self._matcher.is_open(phrase):
+            if (self._fired, phrase) != self._candidate:
+                self._candidate, self._candidate_since = (self._fired, phrase), h.time
+            followed = end < n_tokens and h.time - self._candidate_since >= delay
+            if not (followed or h.quiet >= delay) or self._matcher.is_open(phrase):
                 return
             self._fired += 1
             self._dispatch(phrase, target)

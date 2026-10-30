@@ -58,14 +58,10 @@ class Matcher(Generic[T]):
                                          cutoff=self._threshold)
         return [(best[0], self._phrases[best[0]])] if best else []
 
-    def parse_words(self, words: list[tuple[str, float]]) -> list[tuple[str, T, float]]:
-        """Как parse, но по словам с временем конца: (фраза, значение, конец последнего слова)."""
-        tokens, ends = [], []
-        for word, end in words:
-            for token in normalize(word).split():
-                tokens.append(token)
-                ends.append(end)
-        return [(p, v, ends[j - 1]) for _, j, p, v in self._segment(tokens)]
+    def parse_tokens(self, text: str) -> tuple[int, list[tuple[str, T, int]]]:
+        """Как parse, но без угадывания: (число слов, [(фраза, значение, номер слова после неё)])."""
+        tokens = normalize(text).split()
+        return len(tokens), [(p, v, j) for _, j, p, v in self._segment(tokens)]
 
     def is_open(self, phrase: str) -> bool:
         return phrase in self._open
