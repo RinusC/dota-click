@@ -1,9 +1,9 @@
-"""Загрузка и проверка config.toml."""
+"""Загрузка и проверка settings.toml и профилей игр (profiles/*.toml)."""
 
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from .keys import parse_combo
@@ -23,28 +23,41 @@ class Command:
 class Settings:
     model_path: str = "model"
     device: str | int | None = None
-    only_when_dota_focused: bool = True
+    only_when_game_focused: bool = True
     key_hold_ms: int = 40
     use_grammar: bool = True
     show_unrecognized: bool = True
 
+    def model_dir(self, base_dir: Path) -> Path:
+        path = Path(self.model_path)
+        return path if path.is_absolute() else base_dir / path
+
 
 @dataclass
-class Config:
-    settings: Settings
+class Profile:
+    id: str
+    name: str
+    window_title: str
     commands: list[Command]
     pause_phrases: tuple[str, ...] = ()
     resume_phrases: tuple[str, ...] = ()
-    base_dir: Path = field(default_factory=Path.cwd)
+    path: Path | None = None
 
-    @property
-    def model_dir(self) -> Path:
-        path = Path(self.settings.model_path)
-        return path if path.is_absolute() else self.base_dir / path
+    def all_phrases(self) -> list[str]:
+        result = [p for c in self.commands for p in c.phrases]
+        return result + list(self.pause_phrases) + list(self.resume_phrases)
 
 
 class ConfigError(ValueError):
     pass
+
+
+def _read_toml(path: Path) -> dict:
+    try:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"{path.name}: ошибка синтаксиса: {e}") from None
 
 
 def _phrases(raw, where: str) -> tuple[str, ...]:
@@ -55,17 +68,23 @@ def _phrases(raw, where: str) -> tuple[str, ...]:
     return tuple(raw)
 
 
-def parse_config(data: dict, base_dir: Path) -> Config:
-    raw_settings = data.get("settings", {})
-    known = Settings.__dataclass_fields__
-    unknown = set(raw_settings) - set(known)
+def parse_settings(data: dict) -> Settings:
+    raw = data.get("settings", {})
+    unknown = set(raw) - set(Settings.__dataclass_fields__)
     if unknown:
         raise ConfigError(f"[settings]: неизвестные параметры {sorted(unknown)}")
-    settings = Settings(**raw_settings)
+    settings = Settings(**raw)
     if settings.device == "":
         settings.device = None
     if not 10 <= settings.key_hold_ms <= 200:
         raise ConfigError("[settings] key_hold_ms должен быть от 10 до 200")
+    return settings
+
+
+def parse_profile(data: dict, profile_id: str, path: Path | None = None) -> Profile:
+    game = data.get("game", {})
+    name = game.get("name") or profile_id
+    window_title = game.get("window_title") or name
 
     commands = []
     for i, raw in enumerate(data.get("command", []), 1):
@@ -81,7 +100,7 @@ def parse_config(data: dict, base_dir: Path) -> Config:
         phrases = _phrases(raw.get("phrases"), where)
         commands.append(Command(raw.get("name") or phrases[0], key_text, mods, key, phrases))
     if not commands:
-        raise ConfigError("в конфиге нет ни одной [[command]]")
+        raise ConfigError("в профиле нет ни одной [[command]]")
 
     control = data.get("control", {})
     pause = _phrases(control["pause"], "[control] pause") if "pause" in control else ()
@@ -95,13 +114,26 @@ def parse_config(data: dict, base_dir: Path) -> Config:
                 raise ConfigError(f"фраза «{p}» встречается и в «{seen[n]}», и в «{owner}»")
             seen[n] = owner
 
-    return Config(settings, commands, pause, resume, base_dir)
+    return Profile(profile_id, name, window_title, commands, pause, resume, path)
 
 
-def load_config(path: Path) -> Config:
+def load_settings(path: Path) -> Settings:
+    return parse_settings(_read_toml(path)) if path.exists() else Settings()
+
+
+def load_profile(path: Path) -> Profile:
     try:
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{path}: ошибка синтаксиса: {e}") from None
-    return parse_config(data, path.resolve().parent)
+        return parse_profile(_read_toml(path), path.stem, path)
+    except ConfigError as e:
+        raise ConfigError(f"{path.name}: {e}") from None
+
+
+def load_profiles(directory: Path) -> tuple[dict[str, Profile], list[str]]:
+    """Все профили из папки; сломанные не мешают остальным, ошибки возвращаются списком."""
+    profiles, errors = {}, []
+    for path in sorted(directory.glob("*.toml")):
+        try:
+            profiles[path.stem] = load_profile(path)
+        except (OSError, ConfigError) as e:
+            errors.append(str(e))
+    return profiles, errors

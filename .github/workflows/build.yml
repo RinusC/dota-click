@@ -1,0 +1,60 @@
+name: Build Windows app
+
+on:
+  push:
+    branches: [main, master, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller==6.11.1
+
+      - name: Tests
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: Download speech model
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip -OutFile model.zip
+          Expand-Archive model.zip -DestinationPath .
+          Rename-Item vosk-model-small-ru-0.22 model
+
+      - name: Check phrases against model vocabulary
+        run: python -m dota_voice --check
+
+      - name: Build exe
+        run: >-
+          pyinstaller --noconfirm --windowed --name DotaVoice --collect-all vosk
+          --add-data "settings.toml;." --add-data "profiles;profiles" app.py
+
+      - name: Assemble folder
+        shell: pwsh
+        run: |
+          Copy-Item settings.toml dist/DotaVoice/
+          Copy-Item profiles dist/DotaVoice/profiles -Recurse
+          Copy-Item model dist/DotaVoice/model -Recurse
+          Copy-Item README.md dist/DotaVoice/
+
+      - name: Smoke test exe
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/DotaVoice/DotaVoice.exe -ArgumentList '--check' -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "DotaVoice.exe --check hung"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Error "DotaVoice.exe --check exit code $($p.ExitCode)"; exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DotaVoice-windows
+          path: dist/DotaVoice
