@@ -422,5 +422,13 @@ class GameEngine(state: GameState, private val random: Random = Random.Default) 
         s.lanes.forEach { if (it.level < 1) it.level = 1 }
     }
 
+    /** Swaps in a different save (e.g. after "reset progress"). */
+    fun replaceState(newState: GameState) {
+        state = newState
+        events.clear()
+        log.clear()
+        normalize()
+    }
+
     fun roleOf(slot: Int): Role = Heroes.slotRoles[slot]
 }

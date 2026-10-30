@@ -15,7 +15,7 @@ object I18n {
     fun t(key: String, vararg args: Any?): String {
         val table = if (language == "ru") Strings.ru else Strings.en
         val pattern = table[key] ?: Strings.en[key] ?: key
-        return if (args.isEmpty()) pattern else String.format(java.util.Locale.US, pattern, *args)
+        return String.format(java.util.Locale.US, pattern, *args)
     }
 }
 
