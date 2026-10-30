@@ -360,7 +360,7 @@ class QuickReactionTest(unittest.TestCase):
     def test_key_queue_presses_in_order_with_gap(self):
         e = self.engine(key_gap_ms=30, key_hold_ms=10)
         presses = []
-        e._sender = types.SimpleNamespace(press=lambda mods, key, hold: presses.append((key, time.monotonic())))
+        e._sender = types.SimpleNamespace(press=lambda mods, key, hold: presses.append((key, time.perf_counter())))
         e.handle(Hypothesis(True, "один два три", 1.0))
         e.start_key_worker()
         deadline = time.monotonic() + 2

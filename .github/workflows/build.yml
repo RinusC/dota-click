@@ -86,5 +86,20 @@ jobs:
           unzip -q model.zip
           mv vosk-model-small-ru-0.22 model
 
+      - name: Raw partial result from vosk
+        run: |
+          espeak-ng -v ru -s 160 -w one.wav "один"
+          python - <<'PY'
+          import json, wave, vosk
+          vosk.SetLogLevel(-1)
+          m = vosk.Model("model")
+          w = wave.open("one.wav")
+          r = vosk.KaldiRecognizer(m, w.getframerate(), json.dumps(["один", "два", "[unk]"]))
+          r.SetPartialWords(True)
+          while data := w.readframes(1100):
+              print("final" if r.AcceptWaveform(data) else "part ", r.Result() if False else r.PartialResult().replace("\n", " "))
+          print("END", r.FinalResult().replace("\n", " "))
+          PY
+
       - name: Speak phrases and measure reaction time
-        run: python tests/e2e_voice.py
+        run: python tests/e2e_voice.py --debug

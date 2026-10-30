@@ -20,6 +20,7 @@ from array import array
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+DEBUG = "--debug" in sys.argv
 sys.path.insert(0, str(ROOT))
 
 from dota_voice.config import load_profiles, load_settings  # noqa: E402
@@ -57,7 +58,7 @@ def build_audio(parts, tmp: Path) -> tuple[array, int, float]:
     return audio, rate, speech_end
 
 
-def run(profile, settings, audio: array, rate: int):
+def run(profile, settings, audio: array, rate: int, debug: bool = False):
     fed = threading.Event()
 
     class Stream:
@@ -89,7 +90,8 @@ def run(profile, settings, audio: array, rate: int):
                          dry_run=True)
     now = {"t": 0.0}
     handle, dispatch = engine.handle, engine._dispatch
-    engine.handle = lambda h: (now.__setitem__("t", h.time), handle(h))
+    heard = []
+    engine.handle = lambda h: (now.__setitem__("t", h.time), heard.append(h), handle(h))
     engine._dispatch = lambda phrase, target: (fired.append((target.key_text, now["t"])), dispatch(phrase, target))
     engine.start()
     fed.wait(30)
@@ -97,6 +99,9 @@ def run(profile, settings, audio: array, rate: int):
     engine.stop()
     if errors:
         raise RuntimeError(errors)
+    if debug:
+        for h in heard[:80]:
+            print(f"    {h.time:5.2f} {'FINAL' if h.final else 'part '} {h.text!r} {h.words}")
     return fired
 
 
@@ -111,7 +116,7 @@ def main() -> int:
             for fast in (True, False):
                 settings = load_settings(ROOT / "settings.toml")
                 settings.fast_reaction = fast
-                fired = run(profile, settings, audio, rate)
+                fired = run(profile, settings, audio, rate, debug=DEBUG and fast and parts == ["один"])
                 keys = [k for k, _ in fired]
                 delay = (fired[-1][1] - speech_end) * 1000 if fired else float("nan")
                 mark = "OK " if keys == expected else "НЕ ТО"
