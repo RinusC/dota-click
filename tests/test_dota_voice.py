@@ -81,7 +81,7 @@ class ConfigTest(unittest.TestCase):
         m = build_matcher(deadlock)
         expected = {"первый скилл": "1", "второй скилл": "2", "третий скилл": "3", "ульта": "4",
                     "один": "z", "два": "x", "три": "c", "четыре": "v",
-                    "удар": "q", "парирование": "f", "перезарядка": "r"}
+                    "удар": "q", "блок": "f", "перезарядка": "r"}
         for phrase, key in expected.items():
             self.assertEqual(m.parse(phrase)[0][1].key, key, phrase)
 
@@ -231,7 +231,7 @@ class EngineTest(unittest.TestCase):
 
     def test_deadlock_phrases_press_keys(self):
         profile = default_profiles()["deadlock"]
-        pressed, _, _ = self.run_engine(profile, ["ульта", "парирование", "два", "конец"])
+        pressed, _, _ = self.run_engine(profile, ["ульта", "блок", "два", "конец"])
         self.assertEqual(pressed, [((), "4"), ((), "f"), ((), "x")])
 
     def test_split_phrase_is_understood_as_original(self):
