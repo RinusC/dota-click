@@ -101,8 +101,12 @@ tap_text "⚙"
 sleep 1
 tap_text "Русский"
 sleep 1
-tap_text "Закрыть"
+ui_dump 04_settings_ru
+grep -q "Настройки" "$OUT/04_settings_ru.xml" || fail "settings not translated to Russian"
+adb shell input keyevent KEYCODE_BACK
 sleep 1
+ui_dump 04_russian
+grep -q "Улучшить волну" "$OUT/04_russian.xml" || fail "lanes screen not translated to Russian"
 shot 04_russian
 adb shell input keyevent KEYCODE_HOME
 sleep 2
