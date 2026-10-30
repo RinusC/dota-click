@@ -9,12 +9,28 @@ import tempfile
 import threading
 import urllib.request
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
 from .matcher import normalize
 
 MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip"
+MODEL_RATE = 16000   # частота, на которой обучена модель: без пересчёта звук обрабатывается быстрее
+CHUNK_SECONDS = 0.05  # порция звука: чем меньше, тем чаще обновляется промежуточный результат
+
+
+@dataclass
+class Hypothesis:
+    """Что распознаватель услышал к моменту time (секунды звука с начала прослушивания).
+
+    final=False — промежуточный результат, пока человек говорит; words — слова
+    с временем их конца. final=True — фраза закончена (распознаватель услышал паузу).
+    """
+    final: bool
+    text: str
+    time: float
+    words: list[tuple[str, float]] = field(default_factory=list)
 
 
 def download_model(target: Path, url: str = MODEL_URL,
@@ -116,7 +132,7 @@ class VoiceListener:
         self._sd = sd
         self._vosk = vosk
         self.device = device
-        self.sample_rate = int(sd.query_devices(device, "input")["default_samplerate"])
+        self.sample_rate = self._pick_rate()
 
         self.grammar: list[str] = []
         self.unknown: dict[str, list[str]] = {}
@@ -132,6 +148,14 @@ class VoiceListener:
                 self.unknown[phrase] = missing
         self.use_grammar = use_grammar and bool(self.grammar)
 
+    def _pick_rate(self) -> int:
+        try:
+            self._sd.check_input_settings(device=self.device, samplerate=MODEL_RATE,
+                                          channels=1, dtype="int16")
+            return MODEL_RATE
+        except Exception:  # noqa: BLE001 — микрофон не умеет 16 кГц, берём его родную частоту
+            return int(self._sd.query_devices(self.device, "input")["default_samplerate"])
+
     def _recognizer(self):
         if self.use_grammar:
             # [unk] поглощает посторонние слова, чтобы они не превращались в команды.
@@ -139,7 +163,7 @@ class VoiceListener:
             return self._vosk.KaldiRecognizer(self.model, self.sample_rate, grammar)
         return self._vosk.KaldiRecognizer(self.model, self.sample_rate)
 
-    def listen(self, stop: threading.Event | None = None) -> Iterator[str]:
+    def listen(self, stop: threading.Event | None = None) -> Iterator[Hypothesis]:
         stop = stop or threading.Event()
         audio: queue.Queue[bytes] = queue.Queue()
 
@@ -147,15 +171,26 @@ class VoiceListener:
             audio.put(bytes(indata))
 
         rec = self._recognizer()
-        with self._sd.RawInputStream(samplerate=self.sample_rate, blocksize=4000,
-                                     device=self.device, dtype="int16",
-                                     channels=1, callback=callback):
+        rec.SetPartialWords(True)
+        samples = 0
+        last_partial = None
+        with self._sd.RawInputStream(samplerate=self.sample_rate,
+                                     blocksize=int(self.sample_rate * CHUNK_SECONDS),
+                                     device=self.device, dtype="int16", channels=1,
+                                     latency="low", callback=callback):
             while not stop.is_set():
                 try:
                     data = audio.get(timeout=0.2)
                 except queue.Empty:
                     continue
+                samples += len(data) // 2
+                now = samples / self.sample_rate
                 if rec.AcceptWaveform(data):
-                    text = json.loads(rec.Result()).get("text", "")
-                    if text:
-                        yield text
+                    last_partial = None
+                    yield Hypothesis(True, json.loads(rec.Result()).get("text", ""), now)
+                else:
+                    partial = json.loads(rec.PartialResult())
+                    words = [(w["word"], w["end"]) for w in partial.get("partial_result", [])]
+                    if words or last_partial:
+                        last_partial = words
+                        yield Hypothesis(False, partial.get("partial", ""), now, words)

@@ -25,6 +25,9 @@ class Settings:
     device: str | int | None = None
     only_when_game_focused: bool = True
     key_hold_ms: int = 40
+    key_gap_ms: int = 30
+    fast_reaction: bool = True
+    reaction_delay_ms: int = 120
     use_grammar: bool = True
     show_unrecognized: bool = True
 
@@ -76,8 +79,9 @@ def parse_settings(data: dict) -> Settings:
     settings = Settings(**raw)
     if settings.device == "":
         settings.device = None
-    if not 10 <= settings.key_hold_ms <= 200:
-        raise ConfigError("[settings] key_hold_ms должен быть от 10 до 200")
+    for name, low, high in [("key_hold_ms", 10, 200), ("key_gap_ms", 0, 500), ("reaction_delay_ms", 40, 1000)]:
+        if not low <= getattr(settings, name) <= high:
+            raise ConfigError(f"[settings] {name} должен быть от {low} до {high}")
     return settings
 
 

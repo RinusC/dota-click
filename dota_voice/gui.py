@@ -50,7 +50,7 @@ class App:
         self._flash_job = None
 
         root.title("Dota Voice")
-        root.geometry("860x600")
+        root.geometry("860x640")
         root.minsize(720, 480)
         root.configure(bg=BG)
         self._style()
@@ -146,8 +146,10 @@ class App:
         hero = tk.Frame(self.root, bg=PANEL)
         hero.pack(fill="x", padx=16, pady=(8, 8))
         self.last_label = tk.Label(hero, text="Скажите команду — например, «ульта»",
-                                   bg=PANEL, fg=MUTED, font=(FONT, 20, "bold"), pady=14)
-        self.last_label.pack(fill="x")
+                                   bg=PANEL, fg=MUTED, font=(FONT, 20, "bold"))
+        self.last_label.pack(fill="x", pady=(12, 0))
+        self.heard_label = tk.Label(hero, text=" ", bg=PANEL, fg=MUTED, font=(FONT, 10))
+        self.heard_label.pack(fill="x", pady=(0, 8))
 
         body = ttk.Frame(self.root, padding=(16, 0))
         body.pack(fill="both", expand=True)
@@ -370,6 +372,8 @@ class App:
         elif e.kind == "command":
             self.show_command(f"«{e.text}»  →  {e.command.key_text.upper()}")
             self.write(f"«{e.text}» → {e.command.key_text.upper()}  ({e.command.name})")
+        elif e.kind == "partial":
+            self.heard_label.configure(text=f"слышу: {e.text}" if e.text else " ")
         elif e.kind == "unrecognized":
             self.write(f"? «{e.text}»", "muted")
         elif e.kind == "skipped":

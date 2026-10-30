@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import queue
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -10,14 +12,15 @@ from typing import Callable
 from .config import Command, Profile, Settings
 from .keys import active_window_title, make_sender
 from .matcher import Matcher, normalize
+from .recognizer import Hypothesis, VoiceListener
 
 PAUSE, RESUME = "pause", "resume"
 
 
 @dataclass
 class Event:
-    """Что произошло. kind: ready, command, unrecognized, paused, resumed,
-    skipped (пауза или окно игры не активно), error, stopped."""
+    """Что произошло. kind: ready, partial (что слышно прямо сейчас), command,
+    unrecognized, paused, resumed, skipped (пауза или окно игры не активно), error, stopped."""
     kind: str
     text: str = ""
     command: Command | None = None
@@ -40,6 +43,17 @@ def build_matcher(profile: Profile, aliases: dict[str, str] | None = None) -> Ma
 
 
 class VoiceEngine:
+    """Слушает микрофон и превращает фразы в нажатия.
+
+    Нажатия выполняет отдельный поток по очереди: если быстро сказать
+    «один два», сработают обе команды в том порядке, в каком сказаны,
+    а распознавание при этом не ждёт, пока клавиша будет нажата и отпущена.
+
+    Быстрая реакция: команда срабатывает по промежуточному результату, как
+    только последнее слово фразы перестало меняться reaction_delay_ms, — не
+    дожидаясь, пока распознаватель решит, что человек замолчал.
+    """
+
     def __init__(self, settings: Settings, profile: Profile, model_dir: Path,
                  on_event: Callable[[Event], None], dry_run: bool = False,
                  device: str | int | None = None) -> None:
@@ -55,6 +69,14 @@ class VoiceEngine:
         self._sender = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._keys: queue.Queue[tuple[str, Command] | None] = queue.Queue()
+        self._key_thread: threading.Thread | None = None
+        # Текущая (ещё не законченная) фраза: сколько команд из неё уже выполнено
+        # и с какого момента держится неизменной каждая следующая.
+        self._fired = 0
+        self._candidate: tuple[int, str, float] | None = None
+        self._candidate_since = 0.0
+        self._last_partial = ""
 
     # --- управление ---
 
@@ -82,7 +104,6 @@ class VoiceEngine:
 
     def run(self) -> None:
         """Слушает микрофон, пока не вызовут stop(). Блокирует текущий поток."""
-        from .recognizer import VoiceListener
 
         try:
             self._sender = self._sender or make_sender(self.dry_run)
@@ -90,35 +111,97 @@ class VoiceEngine:
                                      self.device, self.settings.use_grammar)
             self._matcher = build_matcher(self.profile, listener.aliases)
             self._display = {normalize(a): o for a, o in listener.aliases.items()}
+            self.start_key_worker()
             mode = "по списку фраз" if listener.use_grammar else "свободное распознавание"
+            if self.settings.fast_reaction:
+                mode += ", быстрая реакция"
             self.on_event(Event("ready", mode, unknown=listener.unknown))
-            for text in listener.listen(self._stop):
-                self.handle(text)
+            for hypothesis in listener.listen(self._stop):
+                self.handle(hypothesis)
         except Exception as e:  # noqa: BLE001 — любую ошибку показываем пользователю
             self.on_event(Event("error", str(e) or type(e).__name__))
         finally:
+            self.stop_key_worker()
             self.on_event(Event("stopped"))
 
-    def handle(self, text: str) -> None:
-        hits = self._matcher.parse(text)
-        if not hits:
-            if self.settings.show_unrecognized and normalize(text):
-                self.on_event(Event("unrecognized", normalize(text)))
+    def handle(self, h: Hypothesis) -> None:
+        if h.final:
+            self._finish(h.text)
             return
+        if h.text != self._last_partial:
+            self._last_partial = h.text
+            self.on_event(Event("partial", normalize(h.text)))
+        if not self.settings.fast_reaction:
+            return
+        # Выполняем по порядку все команды, которые уже «устоялись».
+        delay = self.settings.reaction_delay_ms / 1000
+        hits = self._matcher.parse_words(h.words)
+        while self._fired < len(hits):
+            phrase, target, end = hits[self._fired]
+            key = (self._fired, phrase, end)
+            if key != self._candidate:
+                self._candidate, self._candidate_since = key, h.time
+                return
+            if h.time - self._candidate_since < delay or self._matcher.is_open(phrase):
+                return
+            self._fired += 1
+            self._dispatch(phrase, target)
+
+    def _finish(self, text: str) -> None:
+        """Фраза закончена: выполняем то, что не успели выполнить по ходу речи."""
+        hits = self._matcher.parse(text)
+        if not hits and not self._fired and self.settings.show_unrecognized and normalize(text):
+            self.on_event(Event("unrecognized", normalize(text)))
+        for phrase, target in hits[self._fired:]:
+            self._dispatch(phrase, target)
+        self._fired = 0
+        self._candidate = None
+        self._last_partial = ""
+        self.on_event(Event("partial", ""))
+
+    def _dispatch(self, phrase: str, target) -> None:
+        phrase = self._display.get(phrase, phrase)
+        if target == PAUSE:
+            self.set_paused(True)
+        elif target == RESUME:
+            self.set_paused(False)
+        elif self.paused:
+            self.on_event(Event("skipped", f"«{phrase}» — голосовые команды на паузе", target))
+        else:
+            self._keys.put((phrase, target))
+
+    # --- очередь нажатий ---
+
+    def start_key_worker(self) -> None:
+        self._sender = self._sender or make_sender(self.dry_run)
+        self._key_thread = threading.Thread(target=self._press_keys, daemon=True)
+        self._key_thread.start()
+
+    def stop_key_worker(self) -> None:
+        """Останавливает очередь; ещё не нажатые клавиши после «Стоп» не нажимаются."""
+        if not self._key_thread:
+            return
+        try:
+            while True:
+                self._keys.get_nowait()
+        except queue.Empty:
+            pass
+        self._keys.put(None)
+        self._key_thread.join(timeout=2)
+        self._key_thread = None
+
+    def _press_keys(self) -> None:
         hold = self.settings.key_hold_ms / 1000
-        for phrase, target in hits:
-            phrase = self._display.get(phrase, phrase)
-            if target == PAUSE:
-                self.set_paused(True)
-            elif target == RESUME:
-                self.set_paused(False)
-            elif self.paused:
-                self.on_event(Event("skipped", f"«{phrase}» — голосовые команды на паузе", target))
-            elif not self._game_focused():
-                self.on_event(Event("skipped", f"«{phrase}» — окно {self.profile.name} не активно", target))
-            else:
-                self._sender.press(target.mods, target.key, hold)
-                self.on_event(Event("command", phrase, target))
+        gap = self.settings.key_gap_ms / 1000
+        while (item := self._keys.get()) is not None:
+            phrase, cmd = item
+            if not self._game_focused():
+                self.on_event(Event("skipped", f"«{phrase}» — окно {self.profile.name} не активно", cmd))
+                continue
+            self._sender.press(cmd.mods, cmd.key, hold)
+            self.on_event(Event("command", phrase, cmd))
+            if gap and not self._keys.empty():
+                time.sleep(gap)
 
     def _game_focused(self) -> bool:
         if not self.settings.only_when_game_focused or self.dry_run:

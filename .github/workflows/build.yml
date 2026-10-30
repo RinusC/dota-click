@@ -59,3 +59,32 @@ jobs:
         with:
           name: DotaVoice-windows
           path: dist/DotaVoice
+
+  voice-e2e:
+    # Синтезированная речь через настоящую модель: проверка распознавания и задержки.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install espeak-ng and vosk
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q espeak-ng
+          pip install vosk
+
+      - name: Download speech model
+        timeout-minutes: 15
+        run: |
+          curl -L --fail --retry 3 --max-time 600 -o model.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+          unzip -q model.zip
+          mv vosk-model-small-ru-0.22 model
+
+      - name: Speak phrases and measure reaction time
+        run: python tests/e2e_voice.py
