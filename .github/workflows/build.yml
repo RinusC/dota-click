@@ -25,9 +25,10 @@ jobs:
         run: python -m unittest discover -s tests -t . -v
 
       - name: Download speech model
+        timeout-minutes: 15
         shell: pwsh
         run: |
-          Invoke-WebRequest https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip -OutFile model.zip
+          curl.exe -L --fail --retry 3 --max-time 600 -o model.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
           Expand-Archive model.zip -DestinationPath .
           Rename-Item vosk-model-small-ru-0.22 model
 
