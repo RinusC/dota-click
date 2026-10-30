@@ -1,11 +1,4 @@
-.gradle/
-build/
-*/build/
-local.properties
-.idea/
-*.iml
-.DS_Store
-captures/
-.kotlin/
-*.apk
-*.keystore
+__pycache__/
+*.pyc
+.venv/
+model/
